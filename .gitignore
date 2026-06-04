@@ -32,3 +32,4 @@ release/
 
 # Notes output (user data)
 notes/
+.trae/
