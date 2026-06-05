@@ -1,13 +1,15 @@
 /**
  * 主窗口入口组件
- * 三栏布局：左侧功能栏 | 中间笔记 | 右侧摘要
+ * 三栏布局：左侧功能栏 | 中间笔记/设置 | 右侧摘要
  */
 
 import { useState, useCallback } from 'react';
 import { Sidebar } from '../../components/Sidebar/Sidebar';
+import { SettingsPanel } from '../../components/SettingsPanel/SettingsPanel';
 import { useSession } from '../../hooks/useSession';
 import { useIPC } from '../../hooks/useIPC';
-import type { Session } from '@shared/types';
+import { DEFAULT_CONFIG } from '@shared/types';
+import type { AppConfig } from '@shared/types';
 
 /** 主窗口样式 */
 const S = {
@@ -36,7 +38,6 @@ const S = {
     padding: '16px',
     display: 'flex',
     flexDirection: 'column' as const,
-    gap: '8px',
   },
   placeholder: {
     display: 'flex',
@@ -52,11 +53,15 @@ const S = {
     fontWeight: 600,
     color: '#d1d5db',
     marginBottom: '16px',
-    paddingBottom: '8px',
-    borderBottom: '1px solid #374151',
+  },
+  summaryHeader: {
+    display: 'flex',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: '16px',
   },
   panelBtn: {
-    padding: '6px 12px',
+    padding: '4px 10px',
     borderRadius: '6px',
     border: 'none',
     background: '#374151',
@@ -64,40 +69,29 @@ const S = {
     fontSize: '12px',
     cursor: 'pointer',
   },
-  settingsHeader: {
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    marginBottom: '16px',
-  },
-  settingsTitle: {
-    fontSize: '16px',
-    fontWeight: 600,
-    color: '#d1d5db',
-  },
-  closeBtn: {
-    background: 'none',
-    border: 'none',
-    color: '#9ca3af',
-    fontSize: '18px',
-    cursor: 'pointer',
-    padding: '4px',
-    borderRadius: '4px',
-  },
 } as const;
 
 /**
  * 主窗口组件
- * 三栏布局：左侧 20% 功能栏 | 中间 60% 笔记区 | 右侧 20% 摘要/设置
  */
 export function MainWindow() {
   const [activeView, setActiveView] = useState('notes');
-  const [hideSummary, setHideSummary] = useState(false);
+  const [summaryVisible, setSummaryVisible] = useState(true);
+  const [config, setConfig] = useState<AppConfig>({ ...DEFAULT_CONFIG });
   const ipc = useIPC();
   const session = useSession({ ipc });
 
-  const handleStartRecording = useCallback(() => {
+  const handlePrepareRecord = useCallback(() => {
+    setActiveView('record');
     ipc.startSession('system');
+  }, [ipc]);
+
+  const handleConfigSave = useCallback((partial: Partial<AppConfig>) => {
+    setConfig((prev) => {
+      const next = { ...prev, ...partial };
+      ipc.updateConfig(next as unknown as Record<string, unknown>);
+      return next;
+    });
   }, [ipc]);
 
   const isSettings = activeView === 'settings';
@@ -107,26 +101,13 @@ export function MainWindow() {
       <Sidebar
         activeView={activeView}
         onViewChange={setActiveView}
-        sessions={[]}
-        onStartRecording={handleStartRecording}
+        onPrepareRecord={handlePrepareRecord}
       />
 
-      {/* 中间栏：笔记 */}
+      {/* 中间栏：笔记 / 设置 */}
       <div style={S.main(isSettings)}>
         {isSettings ? (
-          <>
-            <div style={S.settingsHeader}>
-              <div style={S.settingsTitle}>⚙️ 设置</div>
-              <button
-                style={S.closeBtn}
-                onClick={() => setActiveView('notes')}
-                title="返回笔记"
-              >
-                ✕
-              </button>
-            </div>
-            <div style={S.placeholder}>设置面板将在后续 PR 中完成</div>
-          </>
+          <SettingsPanel config={config} onSave={handleConfigSave} />
         ) : (
           <>
             <div style={S.header}>
@@ -160,7 +141,7 @@ export function MainWindow() {
               <div style={S.placeholder}>
                 {session.sessionState === 'running'
                   ? '等待翻译结果…'
-                  : '点击左侧 🔴 开始录制 启动同声传译'}
+                  : '点击左侧 🎬 准备录制 启动同声传译'}
               </div>
             )}
           </>
@@ -168,23 +149,28 @@ export function MainWindow() {
       </div>
 
       {/* 右侧栏：摘要 */}
-      {!hideSummary && !isSettings ? (
+      {isSettings ? null : (
         <div style={S.rightPanel}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 16 }}>
+          <div style={S.summaryHeader}>
             <div style={S.header}>📊 摘要</div>
-            <button style={S.panelBtn} onClick={() => setHideSummary(true)}>
-              隐藏
+            <button
+              style={S.panelBtn}
+              onClick={() => setSummaryVisible((v) => !v)}
+            >
+              {summaryVisible ? '隐藏' : '显示'}
             </button>
           </div>
-          {session.summary ? (
-            <div style={{ fontSize: 13, color: '#d1d5db', lineHeight: 1.6 }}>
-              {session.summary}
-            </div>
-          ) : (
-            <div style={S.placeholder}>暂无摘要内容</div>
-          )}
+          {summaryVisible ? (
+            session.summary ? (
+              <div style={{ fontSize: 13, color: '#d1d5db', lineHeight: 1.6 }}>
+                {session.summary}
+              </div>
+            ) : (
+              <div style={S.placeholder}>暂无摘要内容</div>
+            )
+          ) : null}
         </div>
-      ) : null}
+      )}
     </div>
   );
 }
