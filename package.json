@@ -1,0 +1,16 @@
+{
+  "name": "synchrolens",
+  "version": "0.1.0",
+  "description": "SynchroLens — AI 同声传译助手",
+  "private": true,
+  "scripts": {
+    "test": "jest --no-cache",
+    "test:coverage": "jest --no-cache --coverage"
+  },
+  "devDependencies": {
+    "@types/jest": "^29.5.14",
+    "jest": "^29.7.0",
+    "ts-jest": "^29.2.6",
+    "typescript": "^5.7.3"
+  }
+}
