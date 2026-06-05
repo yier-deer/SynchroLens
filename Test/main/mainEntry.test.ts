@@ -5,6 +5,22 @@
 
 const mockBrowserWindow = jest.fn();
 
+jest.mock('../../src/main/utils/logger', () => {
+  const mockLogger = {
+    info: jest.fn(),
+    warn: jest.fn(),
+    error: jest.fn(),
+    debug: jest.fn(),
+  };
+  return {
+    __esModule: true,
+    default: mockLogger,
+    createLogger: jest.fn().mockReturnValue(mockLogger),
+    writeLogEntry: jest.fn(),
+    setLogLevel: jest.fn(),
+  };
+});
+
 jest.mock('electron', () => ({
   app: {
     whenReady: jest.fn().mockResolvedValue(undefined),
@@ -17,6 +33,8 @@ jest.mock('electron', () => ({
 
 jest.mock('path', () => ({
   join: jest.fn((...args: string[]) => args.join('/')),
+  resolve: jest.fn((...args: string[]) => args.join('/')),
+  basename: jest.fn((p: string) => p.split('/').pop() || p),
 }));
 
 describe('主进程入口 mainEntry', () => {

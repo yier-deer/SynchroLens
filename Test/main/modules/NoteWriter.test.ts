@@ -6,6 +6,15 @@
 import { NoteWriter } from '../../../src/main/modules/note/NoteWriter';
 import type { Session, Correction } from '../../../src/shared/types';
 
+jest.mock('../../../src/main/utils/logger', () => ({
+  createLogger: jest.fn().mockReturnValue({
+    info: jest.fn(),
+    warn: jest.fn(),
+    error: jest.fn(),
+    debug: jest.fn(),
+  }),
+}));
+
 jest.mock('fs', () => {
   const mockAppendFile = jest.fn().mockResolvedValue(undefined);
   const mockWriteFile = jest.fn().mockResolvedValue(undefined);
@@ -24,6 +33,7 @@ jest.mock('fs', () => {
 
 jest.mock('os', () => ({
   homedir: jest.fn().mockReturnValue('/home/test'),
+  release: jest.fn().mockReturnValue('10.0.0'),
 }));
 
 jest.mock('../../../src/main/utils/markdownFormatter', () => ({

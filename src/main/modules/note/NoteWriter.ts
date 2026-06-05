@@ -6,6 +6,7 @@
 import { promises as fs } from 'fs';
 import { join } from 'path';
 import { homedir } from 'os';
+import { createLogger } from '../../utils/logger';
 import { NOTE_CONSTANTS } from '../../../shared/constants';
 import {
   formatSessionHeader,
@@ -19,6 +20,7 @@ import { isCorrection } from '../../../shared/types';
  * Markdown 笔记写入模块
  */
 export class NoteWriter {
+  private l = createLogger('NoteWriter');
   private noteDir: string;
 
   constructor(noteDir?: string) {
@@ -32,6 +34,7 @@ export class NoteWriter {
    */
   createNoteFile(session: Session): string {
     const filePath = this.generateFilePath(session);
+    this.l.info('笔记文件已创建', { filePath });
     return filePath;
   }
 
@@ -62,6 +65,7 @@ export class NoteWriter {
 
     content += '\n';
     await this.retryWrite(filePath, content, true);
+    this.l.debug('笔记条目已写入', { filePath, sentenceLen: original.length });
   }
 
   /**
@@ -82,6 +86,7 @@ export class NoteWriter {
   async appendSummary(filePath: string, summary: string): Promise<void> {
     const content = `\n## 📊 摘要\n\n${summary}\n`;
     await this.retryWrite(filePath, content, true);
+    this.l.info('摘要已写入笔记', { filePath });
   }
 
   /**
@@ -141,6 +146,7 @@ export class NoteWriter {
       }
     }
 
+    this.l.error('笔记写入失败', { filePath, error: lastError?.message });
     throw new Error(`笔记写入失败（已重试 ${NOTE_CONSTANTS.WRITE_RETRY_COUNT} 次）: ${lastError?.message}`);
   }
 

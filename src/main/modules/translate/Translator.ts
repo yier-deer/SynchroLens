@@ -5,6 +5,7 @@
 
 import { TRANSLATE_CONSTANTS } from '../../../shared/constants';
 import type { Correction, TranslationResult, TranslationPair } from '../../../shared/types';
+import { createLogger } from '../../utils/logger';
 
 /** OpenAI 兼容 API 配置 */
 interface TranslatorConfig {
@@ -28,6 +29,7 @@ export class Translator {
   private apiKey: string;
   private baseUrl: string;
   private model: string;
+  private l = createLogger('Translator');
 
   constructor(config: TranslatorConfig) {
     this.apiKey = config.apiKey;
@@ -42,61 +44,72 @@ export class Translator {
    * @yields 翻译 token 片段
    */
   async *translate(text: string, context: TranslationPair[]): AsyncGenerator<string> {
+    this.l.info('开始翻译', { textLen: text.length, contextLen: context.length });
     const messages = this.buildMessages(text, context);
 
-    const response = await fetch(`${this.baseUrl}/chat/completions`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${this.apiKey}`,
-      },
-      body: JSON.stringify({
-        model: this.model,
-        messages,
-        stream: true,
-        temperature: TRANSLATE_CONSTANTS.TEMPERATURE,
-      }),
-      signal: AbortSignal.timeout(TRANSLATE_CONSTANTS.TRANSLATION_TIMEOUT_MS),
-    });
-
-    if (!response.ok) {
-      const errorBody = await response.text().catch(() => '');
-      throw new Error(`DeepSeek API 错误: ${response.status} ${response.statusText} — ${errorBody}`);
-    }
-
-    const reader = response.body?.getReader();
-    if (!reader) throw new Error('无法获取响应流');
-
-    const decoder = new TextDecoder();
-    let buffer = '';
-
     try {
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
+      const response = await fetch(`${this.baseUrl}/chat/completions`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${this.apiKey}`,
+        },
+        body: JSON.stringify({
+          model: this.model,
+          messages,
+          stream: true,
+          temperature: TRANSLATE_CONSTANTS.TEMPERATURE,
+        }),
+        signal: AbortSignal.timeout(TRANSLATE_CONSTANTS.TRANSLATION_TIMEOUT_MS),
+      });
 
-        buffer += decoder.decode(value, { stream: true });
-        const lines = buffer.split('\n');
-        buffer = lines.pop() || '';
+      if (!response.ok) {
+        const errorBody = await response.text().catch(() => '');
+        throw new Error(`DeepSeek API 错误: ${response.status} ${response.statusText} — ${errorBody}`);
+      }
 
-        for (const line of lines) {
-          const trimmed = line.trim();
-          if (!trimmed || !trimmed.startsWith('data: ')) continue;
+      const reader = response.body?.getReader();
+      if (!reader) throw new Error('无法获取响应流');
 
-          const data = trimmed.slice(6);
-          if (data === '[DONE]') return;
+      const decoder = new TextDecoder();
+      let buffer = '';
 
-          try {
-            const parsed = JSON.parse(data);
-            const content = parsed.choices?.[0]?.delta?.content;
-            if (content) yield content;
-          } catch {
-            // 忽略解析失败的行
+      try {
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+
+          buffer += decoder.decode(value, { stream: true });
+          const lines = buffer.split('\n');
+          buffer = lines.pop() || '';
+
+          for (const line of lines) {
+            const trimmed = line.trim();
+            if (!trimmed || !trimmed.startsWith('data: ')) continue;
+
+            const data = trimmed.slice(6);
+            if (data === '[DONE]') {
+              this.l.info('翻译完成', { textLen: text.length });
+              return;
+            }
+
+            try {
+              const parsed = JSON.parse(data);
+              const content = parsed.choices?.[0]?.delta?.content;
+              if (content) yield content;
+            } catch {
+              // 忽略解析失败的行
+            }
           }
         }
+      } finally {
+        reader.releaseLock();
       }
-    } finally {
-      reader.releaseLock();
+
+      this.l.info('翻译完成', { textLen: text.length });
+    } catch (err) {
+      this.l.error('翻译失败', { error: (err as Error).message });
+      throw err;
     }
   }
 
@@ -151,6 +164,7 @@ export class Translator {
    * @returns 摘要文本
    */
   async generateSummary(sentences: TranslationResult[]): Promise<string> {
+    this.l.info('开始生成摘要', { sentenceCount: sentences.length });
     const content = sentences.map((s) => `原文: ${s.original}\n译文: ${s.translation}`).join('\n---\n');
 
     const response = await fetch(`${this.baseUrl}/chat/completions`, {
@@ -179,7 +193,9 @@ export class Translator {
     }
 
     const data = await response.json() as { choices?: { message?: { content?: string } }[] };
-    return data.choices?.[0]?.message?.content || '';
+    const summary = data.choices?.[0]?.message?.content || '';
+    this.l.info('摘要生成完成');
+    return summary;
   }
 
   /** 构建 API 请求消息数组 */

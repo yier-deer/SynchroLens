@@ -9,6 +9,7 @@ import {
 jest.mock('electron', () => ({
   ipcMain: {
     handle: jest.fn(),
+    on: jest.fn(),
   },
   BrowserWindow: jest.fn(),
 }));
