@@ -4,6 +4,7 @@
  */
 
 import { EventEmitter } from 'events';
+import { createLogger } from '../../utils/logger';
 
 /** 音频数据回调类型 */
 type AudioDataCallback = (pcmBuffer: Int16Array) => void;
@@ -21,11 +22,13 @@ const EVENTS = {
  * 封装系统音频/麦克风采集，输出 16kHz Int16 单声道 PCM 数据
  */
 export class AudioCapture {
+  private l = createLogger('AudioCapture');
   private audioContext: AudioContext | null = null;
   private mediaStream: MediaStream | null = null;
   private processorNode: ScriptProcessorNode | null = null;
   private dataCallbacks: Set<AudioDataCallback> = new Set();
   private running = false;
+  private firstDataFlag = false;
   private currentSource: 'system' | 'microphone' = 'system';
   private emitter = new EventEmitter();
 
@@ -42,6 +45,8 @@ export class AudioCapture {
     this.currentSource = source;
     this.running = true;
 
+    this.l.info('音频采集启动', { source, deviceId: deviceId || 'default' });
+
     try {
       const constraints: MediaStreamConstraints = {
         audio: deviceId ? { deviceId: { exact: deviceId } } : true,
@@ -56,6 +61,10 @@ export class AudioCapture {
 
       this.processorNode.onaudioprocess = (event) => {
         if (!this.running) return;
+        if (!this.firstDataFlag) {
+          this.firstDataFlag = true;
+          this.l.debug('音频数据开始回调');
+        }
         const inputData = event.inputBuffer.getChannelData(0);
         const int16Buffer = new Int16Array(inputData.length);
         for (let i = 0; i < inputData.length; i++) {
@@ -76,8 +85,10 @@ export class AudioCapture {
       this.processorNode.connect(this.audioContext.destination);
 
       this.emitter.emit(EVENTS.START);
+      this.l.info('音频采集已启动');
     } catch (err) {
       this.running = false;
+      this.l.error('音频采集启动失败', { error: err instanceof Error ? err.message : String(err) });
       this.emitter.emit(EVENTS.ERROR, err instanceof Error ? err : new Error(String(err)));
       throw err;
     }
@@ -104,6 +115,7 @@ export class AudioCapture {
       this.audioContext = null;
     }
 
+    this.l.info('音频采集已停止');
     this.emitter.emit(EVENTS.STOP);
   }
 

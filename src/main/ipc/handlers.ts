@@ -5,6 +5,9 @@
 
 import { BrowserWindow, ipcMain } from 'electron';
 import { IPC_CHANNELS } from '../../shared/ipcChannels';
+import { LOG_CHANNELS } from '../../shared/logIpcChannels';
+import { writeLogEntry } from '../utils/logger';
+import type { LogLevel } from '../../shared/logTypes';
 
 /**
  * 业务模块注册表接口
@@ -92,6 +95,11 @@ export function sendToAllWindows(channel: string, data: unknown): void {
  * 将渲染进程的 invoke 请求分发到对应的业务模块
  */
 export function registerIPCHandlers(): void {
+  // log:send — 渲染进程发送日志
+  ipcMain.on(LOG_CHANNELS.LOG_SEND, (_event, entry: { level: LogLevel; module: string; message: string; data?: unknown }) => {
+    writeLogEntry(entry);
+  });
+
   // session:start — 启动翻译会话
   ipcMain.handle(IPC_CHANNELS.SESSION_START, async (_event, payload: { audioSource: 'system' | 'microphone' }) => {
     if (!registry) throw new Error('模块注册表未初始化');

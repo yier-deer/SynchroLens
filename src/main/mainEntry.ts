@@ -5,6 +5,7 @@
 
 import { app, BrowserWindow } from 'electron';
 import { join } from 'path';
+import appLogger from './utils/logger';
 
 /** 窗口引用 */
 let mainWindow: BrowserWindow | null = null;
@@ -33,6 +34,7 @@ function getRendererPath(): string {
  * 创建主窗口（三栏布局）
  */
 function createMainWindow(): BrowserWindow {
+  appLogger.info('主窗口已创建');
   const win = new BrowserWindow({
     width: 1200,
     height: 800,
@@ -64,6 +66,7 @@ function createMainWindow(): BrowserWindow {
  * 创建悬浮字幕窗口
  */
 function createSubtitleWindow(): BrowserWindow {
+  appLogger.info('字幕窗口已创建');
   const win = new BrowserWindow({
     width: 800,
     height: 120,
@@ -92,6 +95,7 @@ function createSubtitleWindow(): BrowserWindow {
  * 创建控制悬浮窗
  */
 function createControlWindow(): BrowserWindow {
+  appLogger.info('控制窗口已创建');
   const win = new BrowserWindow({
     width: 320,
     height: 48,
@@ -151,6 +155,7 @@ export function getControlWindow(): BrowserWindow | null {
  */
 export function registerAppLifecycle(): void {
   app.whenReady().then(() => {
+    appLogger.info('SynchroLens 应用启动中');
     mainWindow = createMainWindow();
 
     app.on('activate', () => {
@@ -158,9 +163,12 @@ export function registerAppLifecycle(): void {
         mainWindow = createMainWindow();
       }
     });
+
+    appLogger.info('SynchroLens 应用已就绪');
   });
 
   app.on('window-all-closed', () => {
+    appLogger.info('所有窗口已关闭');
     if (process.platform !== 'darwin') {
       app.quit();
     }

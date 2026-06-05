@@ -6,6 +6,7 @@
 import { createHmac } from 'crypto';
 import WebSocket from 'ws';
 import { STT_CONSTANTS } from '../../../shared/constants';
+import { createLogger } from '../../utils/logger';
 
 /** STT 客户端配置 */
 interface STTConfig {
@@ -57,6 +58,7 @@ export class STTClient {
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   private connected = false;
   private currentSentenceId = '';
+  private l = createLogger('STTClient');
 
   /**
    * 建立 WebSocket 连接
@@ -66,6 +68,7 @@ export class STTClient {
     this.config = config;
     this.reconnectCount = 0;
     this.currentSentenceId = generateSentenceId();
+    this.l.info('STT 连接中', { url: STT_CONSTANTS.WS_URL });
     this.doConnect();
   }
 
@@ -80,6 +83,7 @@ export class STTClient {
       this.ws.on('open', () => {
         this.connected = true;
         this.reconnectCount = 0;
+        this.l.info('STT WebSocket 已连接');
         this.sendFirstFrame();
       });
 
@@ -88,10 +92,12 @@ export class STTClient {
       });
 
       this.ws.on('error', (err: Error) => {
+        this.l.error('STT WebSocket 错误', { error: err.message });
         this.notifyError(err);
       });
 
       this.ws.on('close', () => {
+        this.l.info('STT WebSocket 已断开');
         this.connected = false;
         this.notifyClose();
         this.attemptReconnect();
@@ -153,6 +159,7 @@ export class STTClient {
         const isFinal = result.ls === true || msg.data.isEnd === 1;
 
         if (isFinal) {
+          this.l.info('STT 句结束', { sentenceId: this.currentSentenceId, text });
           this.currentSentenceId = generateSentenceId();
         }
 
@@ -176,6 +183,8 @@ export class STTClient {
   sendAudio(pcmChunk: Int16Array): void {
     if (!this.ws || !this.connected || this.ws.readyState !== WebSocket.OPEN) return;
 
+    this.l.debug('发送音频帧', { frameSize: pcmChunk.length });
+
     const base64Audio = Buffer.from(pcmChunk.buffer).toString('base64');
 
     const frame = JSON.stringify({
@@ -196,6 +205,8 @@ export class STTClient {
 
   /** 发送结束帧并关闭 WebSocket 连接 */
   disconnect(): void {
+    this.l.info('STT 连接断开');
+
     if (this.reconnectTimer) {
       clearTimeout(this.reconnectTimer);
       this.reconnectTimer = null;
@@ -248,6 +259,7 @@ export class STTClient {
   /** 手动触发重连 */
   reconnect(): void {
     this.reconnectCount = 0;
+    this.l.warn('STT 重连', { attempt: this.reconnectCount });
     this.doConnect();
   }
 

@@ -77,6 +77,22 @@ export const UI_CONSTANTS = Object.freeze({
   CORRECTION_ANIMATION_MS: 300,
 } as const);
 
+/** 日志相关常量 */
+export const LOG_CONSTANTS = Object.freeze({
+  /** 默认日志级别 */
+  DEFAULT_LEVEL: 'info',
+  /** 日志文件目录 */
+  LOG_DIR: 'logs',
+  /** 日志文件名前缀 */
+  FILE_PREFIX: 'synchrolens',
+  /** 日志文件日期格式（按天轮转） */
+  DATE_PATTERN: 'YYYY-MM-DD',
+  /** 日志文件最大大小（MB） */
+  MAX_FILE_SIZE_MB: 5,
+  /** 日志文件保留天数 */
+  RETENTION_DAYS: 7,
+} as const);
+
 /** 快捷键相关常量 */
 export const SHORTCUT_CONSTANTS = Object.freeze({
   /** 开始 / 停止会话快捷键 */

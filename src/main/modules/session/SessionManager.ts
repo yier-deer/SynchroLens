@@ -3,6 +3,7 @@
  * 负责创建/启动/暂停/停止翻译会话，编排各管道模块的协作
  */
 
+import { createLogger } from '../../utils/logger';
 import type { Session, SessionState, AppConfig, STTResult, TranslationResult } from '../../../shared/types';
 
 /** 音频采集模块接口 */
@@ -72,6 +73,7 @@ function generateSessionId(): string {
  * 会话生命周期管理器
  */
 export class SessionManager {
+  private l = createLogger('SessionManager');
   private deps: SessionDependencies;
   private activeSession: ActiveSession | null = null;
   private config: AppConfig | null = null;
@@ -89,55 +91,64 @@ export class SessionManager {
 
   /** 创建新会话 */
   createSession(audioSource: 'system' | 'microphone'): Session {
+    const id = generateSessionId();
     const session: Session = {
-      id: generateSessionId(),
+      id,
       startTime: Date.now(),
       audioSource,
       sentences: [],
     };
+    this.l.info('会话已创建', { id, audioSource });
     return session;
   }
 
   /** 启动翻译会话 */
   startSession(session: Session): void {
-    // 1. 初始化音频采集
-    this.deps.audioCapture.start(session.audioSource as 'system' | 'microphone');
+    this.l.info('会话已启动', { id: session.id });
 
-    // 2. 建立管线：Audio → STT
-    const unsubscribe = this.deps.audioCapture.onData((pcmBuffer) => {
-      this.deps.sttClient.sendAudio(pcmBuffer);
-    });
+    try {
+      // 1. 初始化音频采集
+      this.deps.audioCapture.start(session.audioSource as 'system' | 'microphone');
 
-    // 3. STT 结果 → 翻译
-    this.deps.sttClient.onResult((text, isFinal, sentenceId) => {
-      if (!isFinal) {
-        // 中间结果通过 IPC 推送（由上层监听器处理）
-        if (this.onSTTPartial) {
-          this.onSTTPartial(session.id, { sentenceId, text, isFinal: false });
+      // 2. 建立管线：Audio → STT
+      const unsubscribe = this.deps.audioCapture.onData((pcmBuffer) => {
+        this.deps.sttClient.sendAudio(pcmBuffer);
+      });
+
+      // 3. STT 结果 → 翻译
+      this.deps.sttClient.onResult((text, isFinal, sentenceId) => {
+        if (!isFinal) {
+          // 中间结果通过 IPC 推送（由上层监听器处理）
+          if (this.onSTTPartial) {
+            this.onSTTPartial(session.id, { sentenceId, text, isFinal: false });
+          }
+          return;
         }
-        return;
+
+        // 最终结果 → 触发翻译
+        const context = session.sentences.slice(-5).filter((s) => s.isFinal);
+        this.translateSentence(session, sentenceId, text, context);
+      });
+
+      this.activeSession = {
+        session: { ...session, sentences: [...session.sentences] },
+        unsubscribeAudio: unsubscribe,
+      };
+
+      this.sentenceCount = 0;
+
+      if (this.onStateChange) {
+        this.onStateChange(session.id, 'running');
       }
-
-      // 最终结果 → 触发翻译
-      const context = session.sentences.slice(-5).filter((s) => s.isFinal);
-      this.translateSentence(session, sentenceId, text, context);
-    });
-
-    this.activeSession = {
-      session: { ...session, sentences: [...session.sentences] },
-      unsubscribeAudio: unsubscribe,
-    };
-
-    this.sentenceCount = 0;
-
-    if (this.onStateChange) {
-      this.onStateChange(session.id, 'running');
+    } catch (err) {
+      this.l.error('会话启动失败', { error: (err as Error).message });
     }
   }
 
   /** 暂停会话 */
   pauseSession(): void {
     if (this.activeSession) {
+      this.l.info('会话已暂停', { id: this.activeSession.session.id });
       this.deps.audioCapture.stop();
       if (this.onStateChange) {
         this.onStateChange(this.activeSession.session.id, 'paused');
@@ -148,6 +159,7 @@ export class SessionManager {
   /** 恢复会话 */
   resumeSession(): void {
     if (this.activeSession) {
+      this.l.info('会话已恢复', { id: this.activeSession.session.id });
       const source = this.activeSession.session.audioSource;
       this.deps.audioCapture.start(source as 'system' | 'microphone');
       if (this.onStateChange) {
@@ -159,6 +171,8 @@ export class SessionManager {
   /** 结束会话 */
   async endSession(): Promise<void> {
     if (!this.activeSession) return;
+
+    this.l.info('会话已结束', { id: this.activeSession.session.id });
 
     this.deps.audioCapture.stop();
     this.deps.sttClient.disconnect();
@@ -213,18 +227,24 @@ export class SessionManager {
   async triggerSummary(): Promise<void> {
     if (!this.activeSession) return;
 
-    const finalSentences = this.activeSession.session.sentences.filter((s) => s.isFinal);
-    if (finalSentences.length === 0) return;
+    this.l.info('触发摘要生成');
 
-    const summary = await this.deps.translator.generateSummary(finalSentences);
-    this.activeSession.session.summary = summary;
+    try {
+      const finalSentences = this.activeSession.session.sentences.filter((s) => s.isFinal);
+      if (finalSentences.length === 0) return;
 
-    if (this.activeSession.session.notePath) {
-      await this.deps.noteWriter.appendSummary(this.activeSession.session.notePath, summary);
-    }
+      const summary = await this.deps.translator.generateSummary(finalSentences);
+      this.activeSession.session.summary = summary;
 
-    if (this.onSummary) {
-      this.onSummary(this.activeSession.session.id, summary);
+      if (this.activeSession.session.notePath) {
+        await this.deps.noteWriter.appendSummary(this.activeSession.session.notePath, summary);
+      }
+
+      if (this.onSummary) {
+        this.onSummary(this.activeSession.session.id, summary);
+      }
+    } catch (err) {
+      this.l.error('摘要生成失败', { error: (err as Error).message });
     }
   }
 
@@ -262,6 +282,8 @@ export class SessionManager {
 
       tempResult.translation = fullTranslation || text;
       tempResult.isFinal = true;
+
+      this.l.info('句子翻译完成', { sentenceId, original: text.substring(0, 50) });
 
       // 追加到会话记录
       session.sentences.push(tempResult);

@@ -6,6 +6,8 @@
 
 import { contextBridge, ipcRenderer } from 'electron';
 import { IPC_CHANNELS } from '../shared/ipcChannels';
+import { LOG_CHANNELS } from '../shared/logIpcChannels';
+import type { LogLevel } from '../shared/logTypes';
 
 /** 同步事件监听的包装层，绕过 contextBridge 的 Proxy 限制 */
 const listenerMap = new Map<string, Set<(...args: unknown[]) => void>>();
@@ -37,6 +39,8 @@ export interface SynchroLensAPI {
   updateConfig(config: Record<string, unknown>): Promise<void>;
   /** 触发摘要生成 */
   triggerSummary(): Promise<void>;
+  /** 发送日志到主进程 */
+  log(level: LogLevel, module: string, message: string, data?: unknown): void;
 }
 
 /**
@@ -97,6 +101,10 @@ function buildAPI(): SynchroLensAPI {
 
     triggerSummary(): Promise<void> {
       return ipcRenderer.invoke(IPC_CHANNELS.SUMMARY_TRIGGER);
+    },
+
+    log(level: LogLevel, module: string, message: string, data?: unknown): void {
+      ipcRenderer.send(LOG_CHANNELS.LOG_SEND, { level, module, message, data });
     },
   };
 }
