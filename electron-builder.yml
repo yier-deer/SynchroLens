@@ -15,7 +15,7 @@ win:
     - target: nsis
       arch:
         - x64
-  icon: resources/icon.ico
+  signAndEditExecutable: false
 
 mac:
   target:
@@ -23,7 +23,6 @@ mac:
       arch:
         - x64
         - arm64
-  icon: resources/icon.icns
   category: public.app-category.productivity
 
 linux:
@@ -31,7 +30,6 @@ linux:
     - target: AppImage
       arch:
         - x64
-  icon: resources/icon.png
   category: Utility
 
 nsis:
