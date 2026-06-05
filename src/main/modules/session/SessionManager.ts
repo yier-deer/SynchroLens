@@ -1,0 +1,312 @@
+/**
+ * 会话生命周期管理器
+ * 负责创建/启动/暂停/停止翻译会话，编排各管道模块的协作
+ */
+
+import type { Session, SessionState, AppConfig, STTResult, TranslationResult } from '../../../shared/types';
+
+/** 音频采集模块接口 */
+interface IAudioCapture {
+  start(source: 'system' | 'microphone', deviceId?: string): Promise<void>;
+  stop(): void;
+  onData(callback: (pcmBuffer: Int16Array) => void): () => void;
+  get isRunning(): boolean;
+}
+
+/** STT 客户端接口 */
+interface ISTTClient {
+  connect(config: { appId: string; apiKey: string; apiSecret: string }): void;
+  sendAudio(pcmChunk: Int16Array): void;
+  disconnect(): void;
+  onResult(callback: (text: string, isFinal: boolean, sentenceId: string) => void): void;
+  get isConnected(): boolean;
+}
+
+/** 翻译客户端接口 */
+interface ITranslator {
+  translate(text: string, context: { original: string; translation: string }[]): AsyncGenerator<string>;
+  buildContextWindow(recentTranslations: { original: string; translation: string }[], maxCount: number): string;
+  translateFull(text: string, context: { original: string; translation: string }[]): Promise<string>;
+  generateSummary(sentences: TranslationResult[]): Promise<string>;
+}
+
+/** 笔记写入模块接口 */
+interface INoteWriter {
+  createNoteFile(session: Session): string;
+  appendEntry(filePath: string, original: string, translation: string, timestamp: number): Promise<void>;
+  appendSummary(filePath: string, summary: string): Promise<void>;
+  writeHeader(filePath: string, session: { startTime: number; audioSource: string }, sentenceCount: number, duration: string): Promise<void>;
+}
+
+/** 纠正检测模块接口 */
+interface ICorrectionDetector {
+  checkConsistency(translations: { sentenceId: string; original: string; translation: string }[]): Promise<{ sentenceId: string; from: string; to: string; reason: string }[]>;
+  shouldCheck(sentenceCount: number): boolean;
+  get currentSentenceCount(): number;
+}
+
+/** 模块依赖注册表 */
+export interface SessionDependencies {
+  audioCapture: IAudioCapture;
+  sttClient: ISTTClient;
+  translator: ITranslator;
+  noteWriter: INoteWriter;
+  correctionDetector: ICorrectionDetector;
+}
+
+/** 事件回调类型 */
+export type SessionEventCallback = (sessionId: string, data?: unknown) => void;
+
+/** 内部会话记录 */
+interface ActiveSession {
+  session: Session;
+  unsubscribeAudio: (() => void) | null;
+}
+
+/** 生成唯一会话 ID */
+function generateSessionId(): string {
+  return `session-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+}
+
+/**
+ * 会话生命周期管理器
+ */
+export class SessionManager {
+  private deps: SessionDependencies;
+  private activeSession: ActiveSession | null = null;
+  private config: AppConfig | null = null;
+  private sentenceCount = 0;
+  private onStateChange: SessionEventCallback | null = null;
+  private onSTTPartial: SessionEventCallback | null = null;
+  private onTranslatePartial: SessionEventCallback | null = null;
+  private onTranslateFinal: SessionEventCallback | null = null;
+  private onNoteSaved: SessionEventCallback | null = null;
+  private onSummary: SessionEventCallback | null = null;
+
+  constructor(deps: SessionDependencies) {
+    this.deps = deps;
+  }
+
+  /** 创建新会话 */
+  createSession(audioSource: 'system' | 'microphone'): Session {
+    const session: Session = {
+      id: generateSessionId(),
+      startTime: Date.now(),
+      audioSource,
+      sentences: [],
+    };
+    return session;
+  }
+
+  /** 启动翻译会话 */
+  startSession(session: Session): void {
+    // 1. 初始化音频采集
+    this.deps.audioCapture.start(session.audioSource as 'system' | 'microphone');
+
+    // 2. 建立管线：Audio → STT
+    const unsubscribe = this.deps.audioCapture.onData((pcmBuffer) => {
+      this.deps.sttClient.sendAudio(pcmBuffer);
+    });
+
+    // 3. STT 结果 → 翻译
+    this.deps.sttClient.onResult((text, isFinal, sentenceId) => {
+      if (!isFinal) {
+        // 中间结果通过 IPC 推送（由上层监听器处理）
+        if (this.onSTTPartial) {
+          this.onSTTPartial(session.id, { sentenceId, text, isFinal: false });
+        }
+        return;
+      }
+
+      // 最终结果 → 触发翻译
+      const context = session.sentences.slice(-5).filter((s) => s.isFinal);
+      this.translateSentence(session, sentenceId, text, context);
+    });
+
+    this.activeSession = {
+      session: { ...session, sentences: [...session.sentences] },
+      unsubscribeAudio: unsubscribe,
+    };
+
+    this.sentenceCount = 0;
+
+    if (this.onStateChange) {
+      this.onStateChange(session.id, 'running');
+    }
+  }
+
+  /** 暂停会话 */
+  pauseSession(): void {
+    if (this.activeSession) {
+      this.deps.audioCapture.stop();
+      if (this.onStateChange) {
+        this.onStateChange(this.activeSession.session.id, 'paused');
+      }
+    }
+  }
+
+  /** 恢复会话 */
+  resumeSession(): void {
+    if (this.activeSession) {
+      const source = this.activeSession.session.audioSource;
+      this.deps.audioCapture.start(source as 'system' | 'microphone');
+      if (this.onStateChange) {
+        this.onStateChange(this.activeSession.session.id, 'running');
+      }
+    }
+  }
+
+  /** 结束会话 */
+  async endSession(): Promise<void> {
+    if (!this.activeSession) return;
+
+    this.deps.audioCapture.stop();
+    this.deps.sttClient.disconnect();
+
+    if (this.activeSession.unsubscribeAudio) {
+      this.activeSession.unsubscribeAudio();
+    }
+
+    this.activeSession.session.endTime = Date.now();
+
+    if (this.onStateChange) {
+      this.onStateChange(this.activeSession.session.id, 'stopped');
+    }
+
+    this.activeSession = null;
+    this.sentenceCount = 0;
+  }
+
+  /** 获取会话状态 */
+  getSessionState(): SessionState {
+    if (!this.activeSession) return 'idle';
+    if (this.deps.audioCapture.isRunning) return 'running';
+    return 'paused';
+  }
+
+  /** 获取当前活跃会话 */
+  get currentSession(): Session | null {
+    return this.activeSession ? this.activeSession.session : null;
+  }
+
+  /** 注册状态变更回调 */
+  onSessionStateChange(callback: SessionEventCallback): void {
+    this.onStateChange = callback;
+  }
+
+  /** 注册 STT 中间结果回调 */
+  onSessionSTTPartial(callback: SessionEventCallback): void {
+    this.onSTTPartial = callback;
+  }
+
+  /** 注册翻译流式结果回调 */
+  onSessionTranslatePartial(callback: SessionEventCallback): void {
+    this.onTranslatePartial = callback;
+  }
+
+  /** 注册翻译最终结果回调 */
+  onSessionTranslateFinal(callback: SessionEventCallback): void {
+    this.onTranslateFinal = callback;
+  }
+
+  /** 触发摘要生成 */
+  async triggerSummary(): Promise<void> {
+    if (!this.activeSession) return;
+
+    const finalSentences = this.activeSession.session.sentences.filter((s) => s.isFinal);
+    if (finalSentences.length === 0) return;
+
+    const summary = await this.deps.translator.generateSummary(finalSentences);
+    this.activeSession.session.summary = summary;
+
+    if (this.activeSession.session.notePath) {
+      await this.deps.noteWriter.appendSummary(this.activeSession.session.notePath, summary);
+    }
+
+    if (this.onSummary) {
+      this.onSummary(this.activeSession.session.id, summary);
+    }
+  }
+
+  /** 更新配置 */
+  updateConfig(config: Partial<AppConfig>): void {
+    this.config = { ...this.config, ...config } as AppConfig;
+  }
+
+  /**
+   * 执行单句翻译流程
+   * 流式翻译 → 中间结果推送 → 最终结果写入笔记 → 纠正检测
+   */
+  private async translateSentence(
+    session: Session,
+    sentenceId: string,
+    text: string,
+    context: { original: string; translation: string }[],
+  ): Promise<void> {
+    const tempResult: TranslationResult = {
+      sentenceId,
+      original: text,
+      translation: '',
+      isFinal: false,
+      corrections: [],
+    };
+
+    try {
+      let fullTranslation = '';
+      for await (const token of this.deps.translator.translate(text, context)) {
+        fullTranslation += token;
+        if (this.onTranslatePartial) {
+          this.onTranslatePartial(session.id, { sentenceId, translation: fullTranslation });
+        }
+      }
+
+      tempResult.translation = fullTranslation || text;
+      tempResult.isFinal = true;
+
+      // 追加到会话记录
+      session.sentences.push(tempResult);
+      this.sentenceCount++;
+
+      // 写入笔记（如果已有 notePath）
+      if (session.notePath) {
+        await this.deps.noteWriter.appendEntry(
+          session.notePath,
+          text,
+          tempResult.translation,
+          Date.now(),
+        );
+      }
+
+      // 通知最终翻译结果
+      if (this.onTranslateFinal) {
+        this.onTranslateFinal(session.id, {
+          sentenceId: tempResult.sentenceId,
+          original: tempResult.original,
+          translation: tempResult.translation,
+          corrections: tempResult.corrections,
+        });
+      }
+
+      // 纠正检测
+      if (this.deps.correctionDetector.shouldCheck(1)) {
+        const recentTranslations = session.sentences.slice(-5);
+        const corrections = await this.deps.correctionDetector.checkConsistency(recentTranslations);
+        if (corrections.length > 0 && session.notePath) {
+          for (const corr of corrections) {
+            await this.deps.noteWriter.appendEntry(
+              session.notePath,
+              '',
+              `纠正: ${corr.from} → ${corr.to}`,
+              Date.now(),
+            );
+          }
+        }
+      }
+    } catch {
+      tempResult.translation = text;
+      tempResult.isFinal = true;
+      session.sentences.push(tempResult);
+      this.sentenceCount++;
+    }
+  }
+}
