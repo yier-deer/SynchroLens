@@ -6,7 +6,7 @@
 import { BrowserWindow, ipcMain } from 'electron';
 import { IPC_CHANNELS } from '../../shared/ipcChannels';
 import { LOG_CHANNELS } from '../../shared/logIpcChannels';
-import { writeLogEntry } from '../utils/logger';
+import appLogger, { writeLogEntry } from '../utils/logger';
 import type { LogLevel } from '../../shared/logTypes';
 
 /**
@@ -102,7 +102,7 @@ export function registerIPCHandlers(): void {
 
   // session:start — 启动翻译会话
   ipcMain.handle(IPC_CHANNELS.SESSION_START, async (_event, payload: { audioSource: 'system' | 'microphone' }) => {
-    if (!registry) throw new Error('模块注册表未初始化');
+    if (!registry) { appLogger.warn('ModuleRegistry 未初始化，跳过 session:start'); return null; }
     const session = registry.sessionManager.createSession(payload);
     registry.sessionManager.startSession(session.id);
     return session;
@@ -110,26 +110,25 @@ export function registerIPCHandlers(): void {
 
   // session:stop — 停止翻译会话
   ipcMain.handle(IPC_CHANNELS.SESSION_STOP, async () => {
-    if (!registry) throw new Error('模块注册表未初始化');
-    // 停止当前活跃的会话（由 SessionManager 内部跟踪）
+    if (!registry) { appLogger.warn('ModuleRegistry 未初始化，跳过 session:stop'); return null; }
     await registry.sessionManager.endSession('');
   });
 
   // session:pause — 暂停翻译会话
   ipcMain.handle(IPC_CHANNELS.SESSION_PAUSE, async () => {
-    if (!registry) throw new Error('模块注册表未初始化');
+    if (!registry) { appLogger.warn('ModuleRegistry 未初始化，跳过 session:pause'); return null; }
     registry.sessionManager.pauseSession('');
   });
 
   // config:update — 更新配置
   ipcMain.handle(IPC_CHANNELS.CONFIG_UPDATE, async (_event, payload: Record<string, unknown>) => {
-    if (!registry) throw new Error('模块注册表未初始化');
+    if (!registry) { appLogger.warn('ModuleRegistry 未初始化，跳过 config:update'); return null; }
     registry.sessionManager.updateConfig(payload);
   });
 
   // summary:trigger — 触发摘要生成
   ipcMain.handle(IPC_CHANNELS.SUMMARY_TRIGGER, async () => {
-    if (!registry) throw new Error('模块注册表未初始化');
+    if (!registry) { appLogger.warn('ModuleRegistry 未初始化，跳过 summary:trigger'); return null; }
     await registry.sessionManager.triggerSummary();
   });
 }
