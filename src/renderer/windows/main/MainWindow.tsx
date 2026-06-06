@@ -4,12 +4,53 @@ import { NotesView } from '../../components/Notes/NotesView';
 import { FavoritesView } from '../../components/Favorites/FavoritesView';
 import { DictionaryView } from '../../components/Dictionary/DictionaryView';
 import { SettingsPanel } from '../../components/SettingsPanel/SettingsPanel';
-import { ToastProvider } from '../../components/common/Toast';
+import { ToastProvider, useToast } from '../../components/common/Toast';
 import { SplashScreen } from '../../components/common/SplashScreen';
 import { useSession } from '../../hooks/useSession';
 import { useIPC } from '../../hooks/useIPC';
 import { DEFAULT_CONFIG } from '@shared/types';
 import type { AppConfig, NoteTreeItem } from '@shared/types';
+
+function SettingsWithActions({ config, onSave }: { config: AppConfig; onSave: (partial: Partial<AppConfig>) => void }) {
+  const { showToast } = useToast();
+
+  const handleExportNotes = useCallback(async () => {
+    try {
+      const dir = await window.synchrolens.selectDirectory();
+      if (!dir) return;
+      const savePath = `${dir}\\notes-export-${Date.now()}.zip`;
+      await window.synchrolens.exportAllNotes(savePath);
+      showToast('笔记导出成功');
+    } catch {
+      showToast('导出失败', 'error');
+    }
+  }, [showToast]);
+
+  const handleClearData = useCallback(async () => {
+    const confirmed = window.confirm('确定要清除所有历史数据吗？此操作不可撤销。');
+    if (!confirmed) return;
+    try {
+      await window.synchrolens.clearData(['notes', 'favorites', 'personalDict']);
+      showToast('历史数据已清除');
+    } catch {
+      showToast('清除失败', 'error');
+    }
+  }, [showToast]);
+
+  const handleSaveSettings = useCallback(() => {
+    onSave({});
+    showToast('设置已保存');
+  }, [onSave, showToast]);
+
+  return (
+    <SettingsPanel
+      config={config}
+      onSave={handleSaveSettings}
+      onExportNotes={handleExportNotes}
+      onClearData={handleClearData}
+    />
+  );
+}
 
 export function MainWindow() {
   const [showSplash, setShowSplash] = useState(true);
@@ -81,7 +122,7 @@ export function MainWindow() {
           {activeView === 'dictionary' && <DictionaryView />}
           {activeView === 'settings' && (
             <div className="h-full overflow-auto p-4">
-              <SettingsPanel config={config} onSave={handleConfigSave} />
+              <SettingsWithActions config={config} onSave={handleConfigSave} />
             </div>
           )}
         </div>
