@@ -95,46 +95,74 @@ export function sendToAllWindows(channel: string, data: unknown): void {
  * 将渲染进程的 invoke 请求分发到对应的业务模块
  */
 export function registerIPCHandlers(): void {
-  // log:send — 渲染进程发送日志
   ipcMain.on(LOG_CHANNELS.LOG_SEND, (_event, entry: { level: LogLevel; module: string; message: string; data?: unknown }) => {
     writeLogEntry(entry);
   });
 
-  // session:start — 启动翻译会话
   ipcMain.handle(IPC_CHANNELS.SESSION_START, async (_event, payload: { audioSource: 'system' | 'microphone' }) => {
-    if (!registry) { appLogger.warn('ModuleRegistry 未初始化，跳过 session:start'); return null; }
-    const session = registry.sessionManager.createSession(payload);
-    registry.sessionManager.startSession(session.id);
-    return session;
+    try {
+      if (!registry) { appLogger.warn('ModuleRegistry 未初始化，跳过 session:start'); return null; }
+      const session = registry.sessionManager.createSession(payload);
+      registry.sessionManager.startSession(session.id);
+      return session;
+    } catch (err) {
+      appLogger.error('session:start handler 异常', { error: (err as Error).message });
+      return null;
+    }
   });
 
-  // session:stop — 停止翻译会话
   ipcMain.handle(IPC_CHANNELS.SESSION_STOP, async () => {
-    if (!registry) { appLogger.warn('ModuleRegistry 未初始化，跳过 session:stop'); return null; }
-    await registry.sessionManager.endSession('');
+    try {
+      if (!registry) { appLogger.warn('ModuleRegistry 未初始化，跳过 session:stop'); return null; }
+      await registry.sessionManager.endSession('');
+      return null;
+    } catch (err) {
+      appLogger.error('session:stop handler 异常', { error: (err as Error).message });
+      return null;
+    }
   });
 
-  // session:pause — 暂停翻译会话
   ipcMain.handle(IPC_CHANNELS.SESSION_PAUSE, async () => {
-    if (!registry) { appLogger.warn('ModuleRegistry 未初始化，跳过 session:pause'); return null; }
-    registry.sessionManager.pauseSession('');
+    try {
+      if (!registry) { appLogger.warn('ModuleRegistry 未初始化，跳过 session:pause'); return null; }
+      registry.sessionManager.pauseSession('');
+      return null;
+    } catch (err) {
+      appLogger.error('session:pause handler 异常', { error: (err as Error).message });
+      return null;
+    }
   });
 
-  // config:update — 更新配置
   ipcMain.handle(IPC_CHANNELS.CONFIG_UPDATE, async (_event, payload: Record<string, unknown>) => {
-    if (!registry) { appLogger.warn('ModuleRegistry 未初始化，跳过 config:update'); return null; }
-    registry.sessionManager.updateConfig(payload);
+    try {
+      if (!registry) { appLogger.warn('ModuleRegistry 未初始化，跳过 config:update'); return null; }
+      registry.sessionManager.updateConfig(payload);
+      return null;
+    } catch (err) {
+      appLogger.error('config:update handler 异常', { error: (err as Error).message });
+      return null;
+    }
   });
 
-  // summary:trigger — 触发摘要生成
   ipcMain.handle(IPC_CHANNELS.SUMMARY_TRIGGER, async () => {
-    if (!registry) { appLogger.warn('ModuleRegistry 未初始化，跳过 summary:trigger'); return null; }
-    await registry.sessionManager.triggerSummary();
+    try {
+      if (!registry) { appLogger.warn('ModuleRegistry 未初始化，跳过 summary:trigger'); return null; }
+      await registry.sessionManager.triggerSummary();
+      return null;
+    } catch (err) {
+      appLogger.error('summary:trigger handler 异常', { error: (err as Error).message });
+      return null;
+    }
   });
 
-  // session:resume — 恢复翻译会话
   ipcMain.handle(IPC_CHANNELS.SESSION_RESUME, async () => {
-    if (!registry) { appLogger.warn('ModuleRegistry 未初始化，跳过 session:resume'); return null; }
-    registry.sessionManager.resumeSession('');
+    try {
+      if (!registry) { appLogger.warn('ModuleRegistry 未初始化，跳过 session:resume'); return null; }
+      registry.sessionManager.resumeSession('');
+      return null;
+    } catch (err) {
+      appLogger.error('session:resume handler 异常', { error: (err as Error).message });
+      return null;
+    }
   });
 }
