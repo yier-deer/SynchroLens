@@ -60,6 +60,7 @@ export const IPC_CHANNELS = {
 
   // ===== 数据管理 =====
   DATA_CLEAR: 'data:clear',
+  SELECT_DIRECTORY: 'dialog:select-directory',
 } as const;
 
 /**

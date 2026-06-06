@@ -42,6 +42,7 @@ export interface SynchroLensAPI {
   listNotes(dirPath?: string): Promise<unknown[]>;
   readNote(filePath: string): Promise<string>;
   exportAllNotes(savePath: string): Promise<void>;
+  selectDirectory(): Promise<string | null>;
   clearData(types: ('notes' | 'favorites' | 'personalDict')[]): Promise<void>;
   log(level: LogLevel, module: string, message: string, data?: unknown): void;
 }
@@ -101,6 +102,7 @@ function buildAPI(): SynchroLensAPI {
     listNotes(dirPath?) { return ipcRenderer.invoke(IPC_CHANNELS.NOTES_LIST, { dirPath }); },
     readNote(filePath) { return ipcRenderer.invoke(IPC_CHANNELS.NOTES_READ, { filePath }); },
     exportAllNotes(savePath) { return ipcRenderer.invoke(IPC_CHANNELS.NOTES_EXPORT_ALL, { savePath }); },
+    selectDirectory() { return ipcRenderer.invoke(IPC_CHANNELS.SELECT_DIRECTORY); },
 
     clearData(types) { return ipcRenderer.invoke(IPC_CHANNELS.DATA_CLEAR, { types }); },
 
