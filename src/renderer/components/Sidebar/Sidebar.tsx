@@ -23,7 +23,7 @@ export function Sidebar({ activeView, onViewChange, onNoteSelect, isRecording, o
   const loadNotes = async () => {
     try {
       const tree = await window.synchrolens.listNotes();
-      setNoteTree(tree);
+      setNoteTree(tree as NoteTreeItem[]);
     } catch {
       setNoteTree([]);
     }
