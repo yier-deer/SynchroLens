@@ -54,6 +54,12 @@ export function useIPC() {
     return api.pauseSession();
   }, []);
 
+  const resumeSession = useCallback(async (): Promise<void> => {
+    const api = apiRef.current;
+    if (!api) throw new Error('SynchroLens API 未就绪');
+    return api.resumeSession();
+  }, []);
+
   const updateConfig = useCallback(async (config: Record<string, unknown>): Promise<void> => {
     const api = apiRef.current;
     if (!api) throw new Error('SynchroLens API 未就绪');
@@ -72,6 +78,7 @@ export function useIPC() {
     startSession,
     stopSession,
     pauseSession,
+    resumeSession,
     updateConfig,
     triggerSummary,
     IPC_CHANNELS,
