@@ -3,7 +3,7 @@
  * 创建 BrowserWindow 实例，注册 IPC 处理器，管理应用生命周期
  */
 
-import { app, BrowserWindow, Tray, Menu, ipcMain } from 'electron';
+import { app, BrowserWindow, Tray, Menu, ipcMain, globalShortcut } from 'electron';
 import { join } from 'path';
 import { readFileSync, rmSync, existsSync } from 'fs';
 import { homedir } from 'os';
@@ -389,6 +389,16 @@ export function registerAppLifecycle(): void {
     setBrowserWindows(getAllWindows());
     setupIpcHandlers();
 
+    globalShortcut.register('CommandOrControl+Shift+S', () => {
+      const state = sessionManager.getSessionState();
+      if (state === 'running') {
+        sessionManager.endSession();
+      } else {
+        const sess = sessionManager.createSession('system');
+        sessionManager.startSession(sess);
+      }
+    });
+
     app.on('activate', () => {
       if (BrowserWindow.getAllWindows().length === 0) {
         mainWindow = createMainWindow();
@@ -400,6 +410,7 @@ export function registerAppLifecycle(): void {
 
   app.on('window-all-closed', () => {
     appLogger.info('所有窗口已关闭');
+    globalShortcut.unregisterAll();
     if (process.platform !== 'darwin') {
       app.quit();
     }
