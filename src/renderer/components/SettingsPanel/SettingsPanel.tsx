@@ -113,7 +113,7 @@ const GROUPS: SettingGroup[] = [
     key: 'note',
     title: '📝 笔记设置',
     fields: [
-      { key: 'note.saveDir', label: '保存目录', type: 'text' },
+      { key: 'note.saveDir', label: '保存目录', type: 'text', defaultValue: '' },
       { key: 'note.autoSave', label: '自动保存', type: 'toggle' },
       { key: 'note.autoSummary', label: '自动总结', type: 'toggle' },
       { key: 'note.summaryThreshold', label: '摘要阈值(句)', type: 'number', defaultValue: '20' },
@@ -319,6 +319,26 @@ export function SettingsPanel({ config, onSave, onExportNotes, onClearData }: Se
         >
           {modelsLoading && (field.key === 'translation.fetchModels' || field.key === 'translation.fetchEmbeddingModels') ? '加载中…' : field.label}
         </button>
+      );
+    }
+
+    if (field.key === 'note.saveDir') {
+      const dirVal = (val as string) || '';
+      return (
+        <div key={field.key} style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+          <span style={{ fontSize: '12px', color: '#94a3b8', maxWidth: '160px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+            {dirVal || '未设置'}
+          </span>
+          <button
+            style={S.button}
+            onClick={async () => {
+              const dir = await window.synchrolens.selectDirectory();
+              if (dir) handleChange(field.key, dir);
+            }}
+          >
+            浏览…
+          </button>
+        </div>
       );
     }
 

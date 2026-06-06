@@ -3,7 +3,7 @@
  * 创建 BrowserWindow 实例，注册 IPC 处理器，管理应用生命周期
  */
 
-import { app, BrowserWindow, Tray, Menu, ipcMain, globalShortcut } from 'electron';
+import { app, BrowserWindow, Tray, Menu, ipcMain, globalShortcut, dialog } from 'electron';
 import { join } from 'path';
 import { readFileSync, rmSync, existsSync } from 'fs';
 import { homedir } from 'os';
@@ -269,6 +269,13 @@ function setupIpcHandlers(): void {
   ipcMain.handle(IPC_CHANNELS.DICTIONARY_FILE_LOAD, (_e, payload: { dictType: string; filePath: string }) => dictStore!.loadFile(payload.dictType, payload.filePath));
   ipcMain.handle(IPC_CHANNELS.DICTIONARY_FILE_REMOVE, (_e, payload: { dictType: string; filePath: string }) => dictStore!.removeFile(payload.dictType, payload.filePath));
   ipcMain.handle(IPC_CHANNELS.DICTIONARY_FILE_TOGGLE, (_e, payload: { dictType: string; filePath: string; enabled: boolean }) => dictStore!.toggleFile(payload.dictType, payload.filePath, payload.enabled));
+  ipcMain.handle(IPC_CHANNELS.SELECT_DIRECTORY, async () => {
+    const result = await dialog.showOpenDialog({
+      properties: ['openDirectory'],
+      title: '选择笔记保存目录',
+    });
+    return result.canceled ? null : result.filePaths[0];
+  });
   ipcMain.handle(IPC_CHANNELS.NOTES_LIST, (_e, payload: { dirPath?: string }) => noteReader!.listNotes(payload?.dirPath));
   ipcMain.handle(IPC_CHANNELS.NOTES_READ, (_e, payload: { filePath: string }) => noteReader!.readNote(payload.filePath));
   ipcMain.handle(IPC_CHANNELS.NOTES_EXPORT_ALL, (_e, payload: { savePath: string }) => {
