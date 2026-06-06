@@ -37,6 +37,10 @@ export class Translator {
     this.model = config.model || TRANSLATE_CONSTANTS.MODEL;
   }
 
+  setApiKey(key: string): void {
+    this.apiKey = key;
+  }
+
   /**
    * 流式翻译文本
    * @param text - 待翻译的原文
