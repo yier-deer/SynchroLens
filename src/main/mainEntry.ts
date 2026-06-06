@@ -55,11 +55,6 @@ function getPreloadPath(): string {
   return join(__dirname, '../preload/index.js');
 }
 
-/** 是否处于开发模式 */
-function isDev(): boolean {
-  return !app.isPackaged;
-}
-
 /** 加载页面，开发模式用 loadURL，生产模式用 loadFile */
 function loadPage(win: BrowserWindow, page: string): void {
   if (RENDERER_DEV_URL) {
@@ -89,10 +84,6 @@ function createMainWindow(): BrowserWindow {
   });
 
   loadPage(win, 'index');
-
-  if (isDev()) {
-    win.webContents.openDevTools({ mode: 'right' });
-  }
 
   win.once('ready-to-show', () => {
     win.show();
