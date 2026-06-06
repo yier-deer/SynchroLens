@@ -123,16 +123,7 @@ const GROUPS: SettingGroup[] = [
     key: 'favorite',
     title: '⭐ 收藏设置',
     fields: [
-      { key: 'general.theme', label: '卡片背景色', type: 'text', defaultValue: '#1f2937' },
-      { key: 'general.language', label: '字体色', type: 'text', defaultValue: '#e5e7eb' },
-    ],
-  },
-  {
-    key: 'shortcut',
-    title: '⌨️ 快捷键',
-    fields: [
-      { key: 'general.autoStart', label: '开始/停止', type: 'text', defaultValue: 'Ctrl+Shift+S' },
-      { key: 'general.minimizeToTray', label: '字幕显隐', type: 'toggle' },
+      { key: 'general.theme', label: '卡片风格', type: 'select', options: ['暗夜蓝', '深空灰', '墨绿'] },
     ],
   },
   {
