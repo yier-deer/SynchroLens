@@ -19,6 +19,7 @@ import { SessionManager } from './modules/session/SessionManager';
 import { FavoriteStore } from './modules/favorite/FavoriteStore';
 import { NoteReader } from './modules/note/NoteReader';
 import { DictStore } from './modules/dictionary/DictStore';
+import { PersonalDictStore } from './modules/dictionary/PersonalDictStore';
 import type { Session } from '../shared/types';
 import { IPC_CHANNELS } from '../shared/ipcChannels';
 
@@ -43,6 +44,7 @@ let tray: Tray | null = null;
 let favoriteStore: FavoriteStore | null = null;
 let noteReader: NoteReader | null = null;
 let dictStore: DictStore | null = null;
+let personalDictStore: PersonalDictStore | null = null;
 
 /** 获取预加载脚本路径（开发/生产环境适配） */
 function getPreloadPath(): string {
@@ -258,8 +260,10 @@ function setupIpcHandlers(): void {
   ipcMain.handle(IPC_CHANNELS.FAVORITE_REMOVE_BATCH, (_e, payload: { ids: string[] }) => favoriteStore!.removeBatch(payload.ids));
   ipcMain.handle(IPC_CHANNELS.FAVORITE_SEARCH, (_e, payload: { query: string }) => favoriteStore!.search(payload.query));
   ipcMain.handle(IPC_CHANNELS.FAVORITE_EXPORT, (_e, payload: { ids: string[]; savePath: string }) => favoriteStore!.exportToMarkdown(payload.ids, payload.savePath));
-  ipcMain.handle('improve:submit', () => {});
-  ipcMain.handle('personal-dict:status', () => false);
+  ipcMain.handle(IPC_CHANNELS.IMPROVE_SUBMIT, (_e, payload: { original: string; improved: string; reason: string; context: string }) => {
+    personalDictStore!.add({ source: payload.original, target: payload.improved, improvement: payload.reason, sourceNote: '' });
+  });
+  ipcMain.handle(IPC_CHANNELS.PERSONAL_DICT_STATUS, () => !!process.env.DEEPSEEK_API_KEY);
   ipcMain.handle(IPC_CHANNELS.DICTIONARY_ENTRIES_GET, (_e, payload: { dictType: string }) => dictStore!.getEntries(payload.dictType));
   ipcMain.handle(IPC_CHANNELS.DICTIONARY_ENTRY_REMOVE, (_e, payload: { dictType: string; filePath: string; idx: number }) => dictStore!.removeEntry(payload.dictType, payload.filePath, payload.idx));
   ipcMain.handle(IPC_CHANNELS.DICTIONARY_FILE_LOAD, (_e, payload: { dictType: string; filePath: string }) => dictStore!.loadFile(payload.dictType, payload.filePath));
@@ -292,6 +296,7 @@ export function registerAppLifecycle(): void {
     favoriteStore = new FavoriteStore();
     noteReader = new NoteReader(join(homedir(), 'SynchroLens', 'Notes'));
     dictStore = new DictStore();
+    personalDictStore = new PersonalDictStore();
     const sessionManager = new SessionManager({
       audioCapture, sttClient, translator, noteWriter, correctionDetector
     });
