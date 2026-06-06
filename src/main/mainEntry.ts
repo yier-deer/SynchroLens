@@ -6,6 +6,7 @@
 import { app, BrowserWindow, Tray, Menu, ipcMain } from 'electron';
 import { join } from 'path';
 import { readFileSync } from 'fs';
+import { homedir } from 'os';
 import appLogger from './utils/logger';
 import { setBrowserWindows, registerIPCHandlers, setModuleRegistry, sendToAllWindows } from './ipc/handlers';
 import type { ModuleRegistry } from './ipc/handlers';
@@ -16,6 +17,7 @@ import { NoteWriter } from './modules/note/NoteWriter';
 import { CorrectionDetector } from './modules/correction/CorrectionDetector';
 import { SessionManager } from './modules/session/SessionManager';
 import { FavoriteStore } from './modules/favorite/FavoriteStore';
+import { NoteReader } from './modules/note/NoteReader';
 import type { Session } from '../shared/types';
 import { IPC_CHANNELS } from '../shared/ipcChannels';
 
@@ -38,6 +40,7 @@ let subtitleWindow: BrowserWindow | null = null;
 let controlWindow: BrowserWindow | null = null;
 let tray: Tray | null = null;
 let favoriteStore: FavoriteStore | null = null;
+let noteReader: NoteReader | null = null;
 
 /** 获取预加载脚本路径（开发/生产环境适配） */
 function getPreloadPath(): string {
@@ -260,8 +263,8 @@ function setupIpcHandlers(): void {
   ipcMain.handle('dictionary:file:load', () => {});
   ipcMain.handle('dictionary:file:remove', () => {});
   ipcMain.handle('dictionary:file:toggle', () => {});
-  ipcMain.handle('notes:list', () => []);
-  ipcMain.handle('notes:read', () => '');
+  ipcMain.handle(IPC_CHANNELS.NOTES_LIST, (_e, payload: { dirPath?: string }) => noteReader!.listNotes(payload?.dirPath));
+  ipcMain.handle(IPC_CHANNELS.NOTES_READ, (_e, payload: { filePath: string }) => noteReader!.readNote(payload.filePath));
   ipcMain.handle('notes:export-all', () => {});
   ipcMain.handle('data:clear', () => {});
 
@@ -285,6 +288,7 @@ export function registerAppLifecycle(): void {
     const noteWriter = new NoteWriter();
     const correctionDetector = new CorrectionDetector();
     favoriteStore = new FavoriteStore();
+    noteReader = new NoteReader(join(homedir(), 'SynchroLens', 'Notes'));
     const sessionManager = new SessionManager({
       audioCapture, sttClient, translator, noteWriter, correctionDetector
     });
