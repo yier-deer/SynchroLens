@@ -129,7 +129,6 @@ const S = {
     display: 'flex',
     flexDirection: 'column' as const,
     gap: '20px',
-    maxHeight: '70vh',
     overflowY: 'auto' as const,
   },
   group: {
