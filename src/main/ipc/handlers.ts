@@ -131,4 +131,10 @@ export function registerIPCHandlers(): void {
     if (!registry) { appLogger.warn('ModuleRegistry 未初始化，跳过 summary:trigger'); return null; }
     await registry.sessionManager.triggerSummary();
   });
+
+  // session:resume — 恢复翻译会话
+  ipcMain.handle(IPC_CHANNELS.SESSION_RESUME, async () => {
+    if (!registry) { appLogger.warn('ModuleRegistry 未初始化，跳过 session:resume'); return null; }
+    registry.sessionManager.resumeSession('');
+  });
 }
