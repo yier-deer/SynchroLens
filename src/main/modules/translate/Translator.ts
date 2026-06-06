@@ -186,6 +186,7 @@ export class Translator {
         stream: false,
         temperature: 0.5,
       }),
+      signal: AbortSignal.timeout(TRANSLATE_CONSTANTS.TRANSLATION_TIMEOUT_MS),
     });
 
     if (!response.ok) {
