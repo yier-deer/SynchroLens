@@ -266,7 +266,7 @@ function setupIpcHandlers(): void {
   });
   ipcMain.handle(IPC_CHANNELS.PERSONAL_DICT_STATUS, () => !!process.env.DEEPSEEK_API_KEY);
   ipcMain.handle(IPC_CHANNELS.DICTIONARY_ENTRIES_GET, (_e, payload: { dictType: string }) => dictStore!.getEntries(payload.dictType));
-  ipcMain.handle(IPC_CHANNELS.DICTIONARY_ENTRY_REMOVE, (_e, payload: { dictType: string; filePath: string; idx: number }) => dictStore!.removeEntry(payload.dictType, payload.filePath, payload.idx));
+  ipcMain.handle(IPC_CHANNELS.DICTIONARY_ENTRY_REMOVE, (_e, payload: { dictType: string; entryId: string }) => dictStore!.removeEntryById(payload.dictType, payload.entryId));
   ipcMain.handle(IPC_CHANNELS.DICTIONARY_FILE_LOAD, (_e, payload: { dictType: string; filePath: string }) => dictStore!.loadFile(payload.dictType, payload.filePath));
   ipcMain.handle(IPC_CHANNELS.DICTIONARY_FILE_REMOVE, (_e, payload: { dictType: string; filePath: string }) => dictStore!.removeFile(payload.dictType, payload.filePath));
   ipcMain.handle(IPC_CHANNELS.DICTIONARY_FILE_TOGGLE, (_e, payload: { dictType: string; filePath: string; enabled: boolean }) => dictStore!.toggleFile(payload.dictType, payload.filePath, payload.enabled));
