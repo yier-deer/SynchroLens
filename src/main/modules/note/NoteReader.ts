@@ -1,5 +1,5 @@
 import { readdirSync, statSync, readFileSync, existsSync } from 'fs';
-import { join } from 'path';
+import { resolve, normalize, join } from 'path';
 import type { NoteTreeItem } from '../../../shared/types';
 import { createLogger } from '../../utils/logger';
 
@@ -15,8 +15,22 @@ export class NoteReader {
     return this.notesDir;
   }
 
+  /** 校验目标路径是否在 notesDir 内，防止 ../ 目录穿越攻击 */
+  private validatePath(targetPath: string): string {
+    const resolved = resolve(normalize(targetPath));
+    const base = resolve(this.notesDir);
+    if (!resolved.startsWith(base + '\\') && !resolved.startsWith(base + '/') && resolved !== base) {
+      return '';
+    }
+    return resolved;
+  }
+
   listNotes(dirPath?: string): NoteTreeItem[] {
-    const targetDir = dirPath || this.notesDir;
+    let targetDir = dirPath || this.notesDir;
+    if (dirPath) {
+      targetDir = this.validatePath(dirPath);
+      if (!targetDir) return [];
+    }
     if (!existsSync(targetDir)) return [];
     try {
       const entries = readdirSync(targetDir);
@@ -52,9 +66,11 @@ export class NoteReader {
   }
 
   readNote(filePath: string): string {
+    const safePath = this.validatePath(filePath);
+    if (!safePath) return '';
     try {
-      if (!existsSync(filePath)) return '';
-      return readFileSync(filePath, 'utf-8');
+      if (!existsSync(safePath)) return '';
+      return readFileSync(safePath, 'utf-8');
     } catch {
       return '';
     }
