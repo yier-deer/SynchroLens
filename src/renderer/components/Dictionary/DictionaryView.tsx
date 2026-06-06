@@ -125,7 +125,7 @@ function PersonalDict(): JSX.Element {
   const loadEntries = async () => {
     try {
       const data = await window.synchrolens.getDictionaryEntries('personal');
-      setEntries(data);
+      setEntries(data as DictEntry[]);
     } catch {
       setEntries([]);
     }

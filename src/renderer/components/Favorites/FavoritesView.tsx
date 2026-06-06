@@ -17,7 +17,7 @@ export function FavoritesView(): JSX.Element {
   const loadFavorites = async () => {
     try {
       const data = await window.synchrolens.getFavorites();
-      setFavorites(data);
+      setFavorites(data as Favorite[]);
     } catch {
       setFavorites([]);
     }
@@ -30,7 +30,7 @@ export function FavoritesView(): JSX.Element {
     }
     try {
       const results = await window.synchrolens.searchFavorites(searchQuery);
-      setFavorites(results);
+      setFavorites(results as Favorite[]);
     } catch {
       setFavorites([]);
     }
