@@ -15,10 +15,10 @@ import type { LogLevel } from '../../shared/logTypes';
  */
 export interface ModuleRegistry {
   audioCapture: {
-    start(source: 'system' | 'microphone', deviceId?: string): void;
+    start(source: 'system' | 'microphone', deviceId?: string): Promise<void>;
     stop(): void;
     onData(callback: (pcmBuffer: Int16Array) => void): () => void;
-    getAvailableDevices(): { deviceId: string; label: string }[];
+    getAvailableDevices(): Promise<{ deviceId: string; label: string }[]>;
   };
   sttClient: {
     connect(config: { appId: string; apiKey: string; apiSecret: string }): void;
