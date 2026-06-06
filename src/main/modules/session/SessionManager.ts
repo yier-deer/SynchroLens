@@ -29,6 +29,7 @@ interface ITranslator {
   buildContextWindow(recentTranslations: { original: string; translation: string }[], maxCount: number): string;
   translateFull(text: string, context: { original: string; translation: string }[]): Promise<string>;
   generateSummary(sentences: TranslationResult[]): Promise<string>;
+  setApiKey(key: string): void;
 }
 
 /** 笔记写入模块接口 */
@@ -107,7 +108,11 @@ export class SessionManager {
     this.l.info('会话已启动', { id: session.id });
 
     try {
-      // 1. 初始化音频采集
+      const appId = process.env.XFYUN_APP_ID || '';
+      const apiKey = process.env.XFYUN_API_KEY || '';
+      const apiSecret = process.env.XFYUN_API_SECRET || '';
+      this.deps.sttClient.connect({ appId, apiKey, apiSecret });
+
       this.deps.audioCapture.start(session.audioSource as 'system' | 'microphone');
 
       // 2. 建立管线：Audio → STT
@@ -254,6 +259,13 @@ export class SessionManager {
   /** 更新配置 */
   updateConfig(config: Partial<AppConfig>): void {
     this.config = { ...this.config, ...config } as AppConfig;
+    if (config.stt?.appId) process.env.XFYUN_APP_ID = config.stt.appId;
+    if (config.stt?.apiKey) process.env.XFYUN_API_KEY = config.stt.apiKey;
+    if (config.stt?.apiSecret) process.env.XFYUN_API_SECRET = config.stt.apiSecret;
+    if (config.translation?.apiKey) {
+      process.env.DEEPSEEK_API_KEY = config.translation.apiKey;
+      this.deps.translator.setApiKey(config.translation.apiKey);
+    }
   }
 
   /**

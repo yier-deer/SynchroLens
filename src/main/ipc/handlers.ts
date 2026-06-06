@@ -33,6 +33,7 @@ export interface ModuleRegistry {
     translate(text: string, context: { original: string; translation: string }[]): AsyncGenerator<string>;
     translateFull(text: string, context: { original: string; translation: string }[]): Promise<string>;
     generateSummary(sentences: { sentenceId: string; original: string; translation: string }[]): Promise<string>;
+    setApiKey(key: string): void;
   };
   noteWriter: {
     createNoteFile(session: { startTime: number; audioSource: string }): string;
