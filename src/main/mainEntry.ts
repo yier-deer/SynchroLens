@@ -6,6 +6,7 @@
 import { app, BrowserWindow, Tray, Menu, ipcMain } from 'electron';
 import { join } from 'path';
 import appLogger from './utils/logger';
+import { setBrowserWindows, registerIPCHandlers } from './ipc/handlers';
 
 /** 窗口引用 */
 let mainWindow: BrowserWindow | null = null;
@@ -209,12 +210,6 @@ function setupIpcHandlers(): void {
     }
   });
 
-  ipcMain.handle('session:start', () => {});
-  ipcMain.handle('session:stop', () => {});
-  ipcMain.handle('session:pause', () => {});
-  ipcMain.handle('session:resume', () => {});
-  ipcMain.handle('config:update', () => {});
-  ipcMain.handle('summary:trigger', () => {});
   ipcMain.handle('favorite:get', () => []);
   ipcMain.handle('favorite:add', () => {});
   ipcMain.handle('favorite:remove', () => {});
@@ -232,6 +227,8 @@ function setupIpcHandlers(): void {
   ipcMain.handle('notes:read', () => '');
   ipcMain.handle('notes:export-all', () => {});
   ipcMain.handle('data:clear', () => {});
+
+  registerIPCHandlers();
 }
 
 /**
@@ -242,6 +239,7 @@ export function registerAppLifecycle(): void {
     appLogger.info('SynchroLens 应用启动中');
     mainWindow = createMainWindow();
     createTray();
+    setBrowserWindows(getAllWindows());
     setupIpcHandlers();
 
     app.on('activate', () => {
