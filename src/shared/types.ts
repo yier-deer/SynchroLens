@@ -82,6 +82,8 @@ export interface GeneralConfig {
   minimizeToTray: boolean;
   /** 开机自启 */
   autoStart: boolean;
+  /** 字幕显示双语（原文+译文） */
+  showBilingual: boolean;
 }
 
 /** STT 语音识别设置 */
@@ -409,6 +411,7 @@ export const DEFAULT_CONFIG: AppConfig = {
     theme: 'system',
     minimizeToTray: true,
     autoStart: false,
+    showBilingual: true,
   },
   stt: {
     provider: 'xfyun',
