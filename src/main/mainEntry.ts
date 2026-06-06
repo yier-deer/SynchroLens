@@ -7,7 +7,7 @@ import { app, BrowserWindow, Tray, Menu, ipcMain } from 'electron';
 import { join } from 'path';
 import { readFileSync } from 'fs';
 import appLogger from './utils/logger';
-import { setBrowserWindows, registerIPCHandlers, setModuleRegistry } from './ipc/handlers';
+import { setBrowserWindows, registerIPCHandlers, setModuleRegistry, sendToAllWindows } from './ipc/handlers';
 import type { ModuleRegistry } from './ipc/handlers';
 import { AudioCapture } from './modules/audio/AudioCapture';
 import { STTClient } from './modules/stt/STTClient';
@@ -16,6 +16,7 @@ import { NoteWriter } from './modules/note/NoteWriter';
 import { CorrectionDetector } from './modules/correction/CorrectionDetector';
 import { SessionManager } from './modules/session/SessionManager';
 import type { Session } from '../shared/types';
+import { IPC_CHANNELS } from '../shared/ipcChannels';
 
 try {
   const envPath = join(__dirname, '../../.env');
@@ -81,6 +82,7 @@ function createMainWindow(): BrowserWindow {
 
   win.on('closed', () => {
     mainWindow = null;
+    setBrowserWindows(getAllWindows());
   });
 
   return win;
@@ -112,6 +114,11 @@ function createSubtitleWindow(): BrowserWindow {
   win.loadFile(getRendererPath('subtitle'));
   win.setIgnoreMouseEvents(true, { forward: true });
 
+  win.on('closed', () => {
+    subtitleWindow = null;
+    setBrowserWindows(getAllWindows());
+  });
+
   return win;
 }
 
@@ -138,6 +145,11 @@ function createControlWindow(): BrowserWindow {
   });
 
   win.loadFile(getRendererPath('control'));
+
+  win.on('closed', () => {
+    controlWindow = null;
+    setBrowserWindows(getAllWindows());
+  });
 
   return win;
 }
@@ -215,6 +227,7 @@ function setupIpcHandlers(): void {
       controlWindow.show();
     }
     if (mainWindow) { mainWindow.minimize(); }
+    setBrowserWindows(getAllWindows());
   });
 
   ipcMain.handle('window:exit-control', (_event, payload: { action: string }) => {
@@ -274,6 +287,36 @@ export function registerAppLifecycle(): void {
     });
 
     let currentSession: Session | null = null;
+
+    sessionManager.onSessionStateChange((_sessionId, state) => {
+      sendToAllWindows(IPC_CHANNELS.SESSION_STATE_CHANGE, { state });
+    });
+
+    sessionManager.onSessionSTTPartial((_sessionId, data) => {
+      const d = data as { sentenceId: string; text: string; isFinal: boolean };
+      if (d.isFinal) {
+        sendToAllWindows(IPC_CHANNELS.STT_SENTENCE, { sentenceId: d.sentenceId, text: d.text, timestamp: Date.now() });
+      } else {
+        sendToAllWindows(IPC_CHANNELS.STT_PARTIAL, { sentenceId: d.sentenceId, text: d.text, isFinal: false });
+      }
+    });
+
+    sessionManager.onSessionTranslatePartial((_sessionId, data) => {
+      sendToAllWindows(IPC_CHANNELS.TRANSLATE_PARTIAL, data);
+    });
+
+    sessionManager.onSessionTranslateFinal((_sessionId, data) => {
+      const d = data as { sentenceId: string; original: string; translation: string; corrections: unknown[] };
+      sendToAllWindows(IPC_CHANNELS.TRANSLATE_FINAL, data);
+      if (currentSession?.notePath && d.original) {
+        noteWriter.appendEntry(
+          currentSession.notePath,
+          d.original,
+          d.translation,
+          Date.now(),
+        ).catch(err => appLogger.warn('笔记写入失败', { error: (err as Error).message }));
+      }
+    });
 
     const registry: ModuleRegistry = {
       audioCapture,
