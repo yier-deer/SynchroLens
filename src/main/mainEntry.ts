@@ -5,8 +5,9 @@
 
 import { app, BrowserWindow, Tray, Menu, ipcMain } from 'electron';
 import { join } from 'path';
-import { readFileSync } from 'fs';
+import { readFileSync, rmSync, existsSync } from 'fs';
 import { homedir } from 'os';
+import { execSync } from 'child_process';
 import appLogger from './utils/logger';
 import { setBrowserWindows, registerIPCHandlers, setModuleRegistry, sendToAllWindows } from './ipc/handlers';
 import type { ModuleRegistry } from './ipc/handlers';
@@ -271,8 +272,30 @@ function setupIpcHandlers(): void {
   ipcMain.handle(IPC_CHANNELS.DICTIONARY_FILE_TOGGLE, (_e, payload: { dictType: string; filePath: string; enabled: boolean }) => dictStore!.toggleFile(payload.dictType, payload.filePath, payload.enabled));
   ipcMain.handle(IPC_CHANNELS.NOTES_LIST, (_e, payload: { dirPath?: string }) => noteReader!.listNotes(payload?.dirPath));
   ipcMain.handle(IPC_CHANNELS.NOTES_READ, (_e, payload: { filePath: string }) => noteReader!.readNote(payload.filePath));
-  ipcMain.handle('notes:export-all', () => {});
-  ipcMain.handle('data:clear', () => {});
+  ipcMain.handle(IPC_CHANNELS.NOTES_EXPORT_ALL, (_e, payload: { savePath: string }) => {
+    const notesDir = noteReader!.getNotesDir();
+    if (process.platform === 'win32') {
+      execSync(`powershell Compress-Archive -Path "${notesDir}" -DestinationPath "${payload.savePath}" -Force`);
+    } else {
+      execSync(`zip -r "${payload.savePath}" "${notesDir}"`);
+    }
+  });
+  ipcMain.handle(IPC_CHANNELS.DATA_CLEAR, (_e, payload: { types: string[] }) => {
+    const dataDir = join(app.getPath('userData'), 'SynchroLens');
+    for (const type of payload.types) {
+      switch (type) {
+        case 'notes':
+          rmSync(join(homedir(), 'SynchroLens', 'Notes'), { recursive: true, force: true });
+          break;
+        case 'favorites':
+          rmSync(join(dataDir, 'favorites.json'), { force: true });
+          break;
+        case 'personalDict':
+          rmSync(join(dataDir, 'personal-dict.json'), { force: true });
+          break;
+      }
+    }
+  });
 
   registerIPCHandlers();
 }
