@@ -370,7 +370,7 @@ export function SettingsPanel({ config, onSave, onExportNotes, onClearData }: Se
           ))}
         </div>
       ))}
-      <button style={S.saveBtn} onClick={() => onSave({})}>💾 保存设置</button>
+      <button style={S.saveBtn} onClick={() => onSave({...config})}>💾 保存设置</button>
     </div>
   );
 }
