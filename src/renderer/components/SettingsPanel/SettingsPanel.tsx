@@ -103,7 +103,7 @@ const GROUPS: SettingGroup[] = [
     key: 'subtitle',
     title: '💬 字幕显示',
     fields: [
-      { key: 'general.language', label: '语言', type: 'select', options: ['zh-CN', 'en-US'] },
+      { key: 'general.showBilingual', label: '显示双语', type: 'toggle' },
       { key: 'general.theme', label: '主题', type: 'select', options: ['light', 'dark', 'system'] },
       { key: 'general.minimizeToTray', label: '最小化到托盘', type: 'toggle' },
       { key: 'general.autoStart', label: '开机自启', type: 'toggle' },
