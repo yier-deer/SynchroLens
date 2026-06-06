@@ -1,6 +1,7 @@
 import { MainWindow } from './windows/main/MainWindow';
 import { ControlWindow } from './windows/control/ControlWindow';
 import { SubtitleWindow } from './windows/subtitle/SubtitleWindow';
+import { ErrorBoundary } from './components/common/ErrorBoundary';
 
 type WindowType = 'main' | 'subtitle' | 'control';
 
@@ -14,12 +15,12 @@ export function App() {
   const windowType = getWindowType();
 
   if (windowType === 'subtitle') {
-    return <SubtitleWindow />;
+    return <ErrorBoundary><SubtitleWindow /></ErrorBoundary>;
   }
 
   if (windowType === 'control') {
-    return <ControlWindow />;
+    return <ErrorBoundary><ControlWindow /></ErrorBoundary>;
   }
 
-  return <MainWindow />;
+  return <ErrorBoundary><MainWindow /></ErrorBoundary>;
 }
