@@ -31,5 +31,5 @@ coverage/
 release/
 
 # Notes output (user data)
-notes/
+SynchroLens/Notes/
 .trae/
