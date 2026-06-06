@@ -14,12 +14,17 @@ export interface DictFileInfo {
 interface DictEntry {
   source: string;
   target: string;
+  id?: string;
+}
+
+interface DictFileRuntime extends DictFileInfo {
+  entries: DictEntry[];
 }
 
 export class DictStore {
   private l = createLogger('DictStore');
   private metaPath: string;
-  private files: Map<string, DictFileInfo> = new Map();
+  private files: Map<string, DictFileRuntime> = new Map();
 
   constructor() {
     this.metaPath = join(app.getPath('userData'), 'SynchroLens', 'dict-files.json');
@@ -37,7 +42,7 @@ export class DictStore {
       enabled: true,
     };
     const key = `${dictType}:${filePath}`;
-    this.files.set(key, { ...info, entries } as any);
+    this.files.set(key, { ...info, entries });
     this.saveMeta();
     return info;
   }
@@ -50,7 +55,7 @@ export class DictStore {
 
   toggleFile(dictType: string, filePath: string, enabled: boolean): void {
     const key = `${dictType}:${filePath}`;
-    const info = this.files.get(key) as any;
+    const info = this.files.get(key);
     if (info) {
       info.enabled = enabled;
       this.saveMeta();
@@ -59,10 +64,9 @@ export class DictStore {
 
   getEntries(dictType: string): DictEntry[] {
     const result: DictEntry[] = [];
-    for (const [key, file] of this.files) {
-      const fi = file as any;
-      if (fi.dictType === dictType && fi.enabled && fi.entries) {
-        result.push(...fi.entries);
+    for (const [, file] of this.files) {
+      if (file.dictType === dictType && file.enabled && file.entries) {
+        result.push(...file.entries);
       }
     }
     return result;
@@ -70,7 +74,7 @@ export class DictStore {
 
   removeEntry(dictType: string, filePath: string, idx: number): void {
     const key = `${dictType}:${filePath}`;
-    const fi = this.files.get(key) as any;
+    const fi = this.files.get(key);
     if (fi?.entries) {
       fi.entries.splice(idx, 1);
       fi.count = fi.entries.length;
@@ -79,13 +83,12 @@ export class DictStore {
   }
 
   removeEntryById(dictType: string, entryId: string): boolean {
-    for (const [key, file] of this.files) {
-      const fi = file as any;
-      if (!fi.entries || !Array.isArray(fi.entries)) continue;
-      const idx = fi.entries.findIndex((e: any) => e.id === entryId);
+    for (const [, file] of this.files) {
+      if (!file.entries || !Array.isArray(file.entries)) continue;
+      const idx = file.entries.findIndex((e) => e.id === entryId);
       if (idx !== -1) {
-        fi.entries.splice(idx, 1);
-        fi.count = fi.entries.length;
+        file.entries.splice(idx, 1);
+        file.count = file.entries.length;
         this.saveMeta();
         return true;
       }
@@ -170,7 +173,8 @@ export class DictStore {
       if (Array.isArray(raw)) {
         for (const item of raw) {
           const key = `${item.dictType}:${item.filePath}`;
-          this.files.set(key, item);
+          const runtime: DictFileRuntime = { ...item, entries: [] };
+          this.files.set(key, runtime);
         }
       }
     } catch {
@@ -182,9 +186,8 @@ export class DictStore {
     try {
       const dir = dirname(this.metaPath);
       if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
-      const items: any[] = [];
-      for (const val of this.files.values()) {
-        const { entries, ...rest } = val as any;
+      const items: DictFileInfo[] = [];
+      for (const { entries: _entries, ...rest } of this.files.values()) {
         items.push(rest);
       }
       writeFileSync(this.metaPath, JSON.stringify(items, null, 2), 'utf-8');
