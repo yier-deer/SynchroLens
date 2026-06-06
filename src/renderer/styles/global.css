@@ -3,24 +3,22 @@
 @tailwind utilities;
 
 @layer base {
-  *,
-  *::before,
-  *::after {
-    box-sizing: border-box;
-    margin: 0;
-    padding: 0;
+  * {
+    @apply border-surface-200/50;
   }
 
   html {
-    font-size: 16px;
-    -webkit-font-smoothing: antialiased;
-    -moz-osx-font-smoothing: grayscale;
+    @apply antialiased;
+    font-feature-settings: 'cv02', 'cv03', 'cv04', 'cv11';
   }
 
   body {
-    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+    @apply bg-surface-950 text-surface-100 font-sans;
     overflow: hidden;
-    user-select: none;
+  }
+
+  ::selection {
+    @apply bg-primary-500/30 text-primary-100;
   }
 
   ::-webkit-scrollbar {
@@ -29,35 +27,117 @@
   }
 
   ::-webkit-scrollbar-track {
-    background: transparent;
+    @apply bg-transparent;
   }
 
   ::-webkit-scrollbar-thumb {
-    background: rgba(255, 255, 255, 0.2);
-    border-radius: 3px;
+    @apply bg-surface-700/50 rounded-full;
   }
 
   ::-webkit-scrollbar-thumb:hover {
-    background: rgba(255, 255, 255, 0.35);
+    @apply bg-surface-600;
   }
 }
 
 @layer components {
-  .subtitle-container {
+  .glass-panel {
+    @apply bg-surface-900/80 backdrop-blur-xl border border-surface-700/30 rounded-xl;
+  }
+
+  .glass-card {
+    @apply bg-surface-800/60 backdrop-blur-md border border-surface-700/20 rounded-lg;
+  }
+
+  .gradient-border {
+    position: relative;
+  }
+
+  .gradient-border::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    padding: 1px;
+    background: linear-gradient(135deg, rgba(14, 165, 233, 0.3), rgba(217, 70, 239, 0.2), rgba(14, 165, 233, 0.1));
+    -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+    -webkit-mask-composite: xor;
+    mask-composite: exclude;
     pointer-events: none;
   }
 
-  .subtitle-container.interactive {
-    pointer-events: auto;
+  .glow-text {
+    text-shadow: 0 0 20px rgba(14, 165, 233, 0.3), 0 0 40px rgba(14, 165, 233, 0.1);
+  }
+
+  .shimmer-bg {
+    background: linear-gradient(90deg, transparent, rgba(255,255,255,0.05), transparent);
+    background-size: 200% 100%;
+    animation: shimmer 2s linear infinite;
+  }
+
+  .btn-primary {
+    @apply px-4 py-2 bg-primary-600 hover:bg-primary-500 text-white rounded-lg font-medium
+           transition-all duration-200 active:scale-95 shadow-lg shadow-primary-900/20
+           hover:shadow-primary-900/40;
+  }
+
+  .btn-secondary {
+    @apply px-4 py-2 bg-surface-800 hover:bg-surface-700 text-surface-200 rounded-lg font-medium
+           transition-all duration-200 active:scale-95 border border-surface-700/50;
+  }
+
+  .btn-danger {
+    @apply px-4 py-2 bg-red-600/80 hover:bg-red-500 text-white rounded-lg font-medium
+           transition-all duration-200 active:scale-95;
+  }
+
+  .input-field {
+    @apply w-full px-3 py-2 bg-surface-800/80 border border-surface-700/50 rounded-lg
+           text-surface-100 placeholder-surface-500
+           focus:outline-none focus:ring-2 focus:ring-primary-500/50 focus:border-primary-500/50
+           transition-all duration-200;
+  }
+
+  .sidebar-item {
+    @apply flex items-center gap-3 px-3 py-2.5 rounded-lg text-surface-400
+           transition-all duration-200 cursor-pointer
+           hover:bg-surface-800/80 hover:text-surface-200;
+  }
+
+  .sidebar-item.active {
+    @apply bg-primary-500/10 text-primary-400 border border-primary-500/20;
+  }
+
+  .nav-tab {
+    @apply px-4 py-2 text-sm font-medium text-surface-400 rounded-lg
+           transition-all duration-200 cursor-pointer
+           hover:text-surface-200 hover:bg-surface-800/50;
+  }
+
+  .nav-tab.active {
+    @apply bg-primary-500/10 text-primary-400;
+  }
+
+  .subtitle-line {
+    @apply text-center transition-all duration-300;
+  }
+
+  .subtitle-original {
+    @apply text-sm text-surface-400/80 mb-1;
+  }
+
+  .subtitle-translation {
+    @apply text-lg font-medium text-white drop-shadow-lg;
+  }
+
+  .recording-indicator {
+    @apply w-2 h-2 rounded-full bg-red-500;
+    animation: pulse 1.5s cubic-bezier(0.4, 0, 0.6, 1) infinite;
   }
 }
 
 @layer utilities {
-  .drag-region {
-    -webkit-app-region: drag;
-  }
-
-  .no-drag {
-    -webkit-app-region: no-drag;
+  .text-balance {
+    text-wrap: balance;
   }
 }
