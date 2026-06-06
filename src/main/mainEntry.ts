@@ -227,7 +227,7 @@ function createTray(): void {
 }
 
 function setupIpcHandlers(): void {
-  ipcMain.handle('window:prepare-record', () => {
+  ipcMain.handle(IPC_CHANNELS.WINDOW_PREPARE_RECORD, () => {
     if (!subtitleWindow || subtitleWindow.isDestroyed()) {
       subtitleWindow = createSubtitleWindow();
       subtitleWindow.show();
@@ -240,7 +240,7 @@ function setupIpcHandlers(): void {
     setBrowserWindows(getAllWindows());
   });
 
-  ipcMain.handle('window:exit-control', (_event, payload: { action: string }) => {
+  ipcMain.handle(IPC_CHANNELS.WINDOW_EXIT_CONTROL, (_event, payload: { action: string }) => {
     if (payload.action === 'minimize') {
       if (controlWindow && !controlWindow.isDestroyed()) { controlWindow.hide(); }
     } else if (payload.action === 'stop') {
@@ -249,7 +249,7 @@ function setupIpcHandlers(): void {
     }
   });
 
-  ipcMain.handle('window:toggle-subtitle', (_event, payload: { visible: boolean }) => {
+  ipcMain.handle(IPC_CHANNELS.WINDOW_TOGGLE_SUBTITLE, (_event, payload: { visible: boolean }) => {
     if (subtitleWindow && !subtitleWindow.isDestroyed()) {
       payload.visible ? subtitleWindow.show() : subtitleWindow.hide();
     }
