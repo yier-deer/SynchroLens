@@ -21,7 +21,7 @@ import { FavoriteStore } from './modules/favorite/FavoriteStore';
 import { NoteReader } from './modules/note/NoteReader';
 import { DictStore } from './modules/dictionary/DictStore';
 import { PersonalDictStore } from './modules/dictionary/PersonalDictStore';
-import type { Session } from '../shared/types';
+import type { AppConfig, Session } from '../shared/types';
 import { IPC_CHANNELS } from '../shared/ipcChannels';
 
 try {
@@ -384,7 +384,7 @@ export function registerAppLifecycle(): void {
         resumeSession(_sessionId) { sessionManager.resumeSession(); },
         async endSession(_sessionId) { await sessionManager.endSession(); },
         getSessionState(_sessionId) { return sessionManager.getSessionState(); },
-        updateConfig(config) { sessionManager.updateConfig(config); },
+        updateConfig(config: Partial<AppConfig>) { sessionManager.updateConfig(config); },
         async triggerSummary() { await sessionManager.triggerSummary(); },
       },
     };
