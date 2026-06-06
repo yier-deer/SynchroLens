@@ -80,11 +80,13 @@ const GROUPS: SettingGroup[] = [
     title: '🌐 翻译服务',
     fields: [
       { key: 'translation.provider', label: '服务商', type: 'select', options: ['deepseek', 'openai'] },
+      { key: 'translation.apiEndpoint', label: 'API 地址', type: 'text', defaultValue: 'https://api.deepseek.com/v1' },
       { key: 'translation.apiKey', label: 'API Key', type: 'password' },
-      { key: 'translation.model', label: '模型', type: 'text' },
+      { key: 'translation.fetchModels', label: '获取模型', type: 'button' },
+      { key: 'translation.model', label: '模型', type: 'select', options: [], defaultValue: 'deepseek-chat' },
       { key: 'translation.contextCorrection', label: '上下文纠正', type: 'toggle' },
       { key: 'translation.contextWindowSize', label: '上下文窗口', type: 'number' },
-      { key: 'translation.targetLanguage', label: '目标语言', type: 'text', defaultValue: 'zh-CN' },
+      { key: 'translation.targetLanguage', label: '目标语言', type: 'select', options: ['中文'] },
     ],
   },
   {
@@ -226,6 +228,33 @@ const S = {
  */
 export function SettingsPanel({ config, onSave, onExportNotes, onClearData }: SettingsPanelProps) {
   const [localConfig] = useState({ ...config });
+  const [translateModels, setTranslateModels] = useState<string[]>([]);
+  const [embeddingModels, setEmbeddingModels] = useState<string[]>([]);
+  const [modelsLoading, setModelsLoading] = useState(false);
+
+  const fetchModels = useCallback(async (endpointKey: string, target: 'translate' | 'embedding') => {
+    const baseUrl = (getValue(config, endpointKey) as string) || 'https://api.deepseek.com/v1';
+    setModelsLoading(true);
+    try {
+      const resp = await fetch(`${baseUrl}/models`, {
+        headers: { Authorization: `Bearer ${getValue(config, 'translation.apiKey')}` },
+      });
+      if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+      const data = await resp.json() as { data?: { id: string }[] };
+      const names = (data.data || []).map((m: { id: string }) => m.id).sort();
+      if (target === 'translate') {
+        setTranslateModels(names);
+      } else {
+        setEmbeddingModels(names);
+      }
+    } catch (err) {
+      const fallback = ['deepseek-chat', 'deepseek-reasoner'];
+      if (target === 'translate') setTranslateModels(fallback);
+      else setEmbeddingModels(fallback);
+    } finally {
+      setModelsLoading(false);
+    }
+  }, [config]);
 
   const handleChange = useCallback(
     (key: string, value: string | boolean | number) => {
@@ -257,6 +286,8 @@ export function SettingsPanel({ config, onSave, onExportNotes, onClearData }: Se
     if (field.type === 'select') {
       const rawVal = getValue(config, field.key);
       const displayVal = field.key === 'stt.language' ? fromXFyunLang(String(rawVal ?? '中文')) : String(rawVal ?? field.options?.[0] ?? '');
+      const modelOpts = field.key === 'translation.model' ? translateModels : field.options || [];
+      const renderOpts = modelOpts.length > 0 ? modelOpts : (field.defaultValue ? [field.defaultValue] : []);
       return (
         <select
           key={field.key}
@@ -264,7 +295,7 @@ export function SettingsPanel({ config, onSave, onExportNotes, onClearData }: Se
           value={displayVal}
           onChange={(e) => handleChange(field.key, e.target.value)}
         >
-          {field.options?.map((opt) => (
+          {(renderOpts).map((opt) => (
             <option key={opt} value={opt}>{opt}</option>
           ))}
         </select>
@@ -275,13 +306,16 @@ export function SettingsPanel({ config, onSave, onExportNotes, onClearData }: Se
       return (
         <button
           key={field.key}
-          style={S.button}
+          style={{ ...S.button, opacity: modelsLoading ? 0.6 : 1 }}
+          disabled={modelsLoading}
           onClick={() => {
             if (field.key === 'export') onExportNotes?.();
-            if (field.key === 'clear') onClearData?.();
+            else if (field.key === 'clear') onClearData?.();
+            else if (field.key === 'translation.fetchModels') fetchModels('translation.apiEndpoint', 'translate');
+            else if (field.key === 'translation.fetchEmbeddingModels') fetchModels('translation.apiEndpoint', 'embedding');
           }}
         >
-          {field.label}
+          {modelsLoading && (field.key === 'translation.fetchModels' || field.key === 'translation.fetchEmbeddingModels') ? '加载中…' : field.label}
         </button>
       );
     }
