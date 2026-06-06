@@ -7,6 +7,25 @@
 import { useState, useCallback } from 'react';
 import type { AppConfig } from '@shared/types';
 
+/** STT 语言显示名 → 讯飞编码映射 */
+const STT_LANG_MAP: Record<string, string> = {
+  '中文': 'zh_cn',
+  '英文': 'en',
+  '日文': 'ja',
+  '韩文': 'ko',
+};
+
+function toXFyunLang(displayName: string): string {
+  return STT_LANG_MAP[displayName] || 'zh_cn';
+}
+
+function fromXFyunLang(code: string): string {
+  for (const [name, c] of Object.entries(STT_LANG_MAP)) {
+    if (c === code) return name;
+  }
+  return '中文';
+}
+
 /** SettingsPanel 属性 */
 interface SettingsPanelProps {
   config: AppConfig;
@@ -52,7 +71,7 @@ const GROUPS: SettingGroup[] = [
       { key: 'stt.appId', label: 'AppID', type: 'text' },
       { key: 'stt.apiKey', label: 'API Key', type: 'password' },
       { key: 'stt.apiSecret', label: 'API Secret', type: 'password' },
-      { key: 'stt.language', label: '识别语言', type: 'text', defaultValue: 'zh_cn' },
+      { key: 'stt.language', label: '识别语言', type: 'select', options: ['中文', '英文', '日文', '韩文'], defaultValue: '中文' },
       { key: 'audio.noiseReduction', label: '降噪', type: 'toggle' },
     ],
   },
@@ -212,7 +231,8 @@ export function SettingsPanel({ config, onSave, onExportNotes, onClearData }: Se
     (key: string, value: string | boolean | number) => {
       const [section, field] = key.split('.');
       if (section && field) {
-        onSave({ [section]: { [field]: value } } as unknown as Partial<AppConfig>);
+        const finalValue = key === 'stt.language' ? toXFyunLang(String(value)) : value;
+        onSave({ [section]: { [field]: finalValue } } as unknown as Partial<AppConfig>);
       }
     },
     [onSave],
@@ -235,11 +255,13 @@ export function SettingsPanel({ config, onSave, onExportNotes, onClearData }: Se
     }
 
     if (field.type === 'select') {
+      const rawVal = getValue(config, field.key);
+      const displayVal = field.key === 'stt.language' ? fromXFyunLang(String(rawVal ?? '中文')) : String(rawVal ?? field.options?.[0] ?? '');
       return (
         <select
           key={field.key}
           style={S.select}
-          value={String(val ?? field.options?.[0] ?? '')}
+          value={displayVal}
           onChange={(e) => handleChange(field.key, e.target.value)}
         >
           {field.options?.map((opt) => (
