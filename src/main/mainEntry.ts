@@ -18,6 +18,7 @@ import { CorrectionDetector } from './modules/correction/CorrectionDetector';
 import { SessionManager } from './modules/session/SessionManager';
 import { FavoriteStore } from './modules/favorite/FavoriteStore';
 import { NoteReader } from './modules/note/NoteReader';
+import { DictStore } from './modules/dictionary/DictStore';
 import type { Session } from '../shared/types';
 import { IPC_CHANNELS } from '../shared/ipcChannels';
 
@@ -41,6 +42,7 @@ let controlWindow: BrowserWindow | null = null;
 let tray: Tray | null = null;
 let favoriteStore: FavoriteStore | null = null;
 let noteReader: NoteReader | null = null;
+let dictStore: DictStore | null = null;
 
 /** 获取预加载脚本路径（开发/生产环境适配） */
 function getPreloadPath(): string {
@@ -258,11 +260,11 @@ function setupIpcHandlers(): void {
   ipcMain.handle(IPC_CHANNELS.FAVORITE_EXPORT, (_e, payload: { ids: string[]; savePath: string }) => favoriteStore!.exportToMarkdown(payload.ids, payload.savePath));
   ipcMain.handle('improve:submit', () => {});
   ipcMain.handle('personal-dict:status', () => false);
-  ipcMain.handle('dictionary:entries:get', () => []);
-  ipcMain.handle('dictionary:entry:remove', () => {});
-  ipcMain.handle('dictionary:file:load', () => {});
-  ipcMain.handle('dictionary:file:remove', () => {});
-  ipcMain.handle('dictionary:file:toggle', () => {});
+  ipcMain.handle(IPC_CHANNELS.DICTIONARY_ENTRIES_GET, (_e, payload: { dictType: string }) => dictStore!.getEntries(payload.dictType));
+  ipcMain.handle(IPC_CHANNELS.DICTIONARY_ENTRY_REMOVE, (_e, payload: { dictType: string; filePath: string; idx: number }) => dictStore!.removeEntry(payload.dictType, payload.filePath, payload.idx));
+  ipcMain.handle(IPC_CHANNELS.DICTIONARY_FILE_LOAD, (_e, payload: { dictType: string; filePath: string }) => dictStore!.loadFile(payload.dictType, payload.filePath));
+  ipcMain.handle(IPC_CHANNELS.DICTIONARY_FILE_REMOVE, (_e, payload: { dictType: string; filePath: string }) => dictStore!.removeFile(payload.dictType, payload.filePath));
+  ipcMain.handle(IPC_CHANNELS.DICTIONARY_FILE_TOGGLE, (_e, payload: { dictType: string; filePath: string; enabled: boolean }) => dictStore!.toggleFile(payload.dictType, payload.filePath, payload.enabled));
   ipcMain.handle(IPC_CHANNELS.NOTES_LIST, (_e, payload: { dirPath?: string }) => noteReader!.listNotes(payload?.dirPath));
   ipcMain.handle(IPC_CHANNELS.NOTES_READ, (_e, payload: { filePath: string }) => noteReader!.readNote(payload.filePath));
   ipcMain.handle('notes:export-all', () => {});
@@ -289,6 +291,7 @@ export function registerAppLifecycle(): void {
     const correctionDetector = new CorrectionDetector();
     favoriteStore = new FavoriteStore();
     noteReader = new NoteReader(join(homedir(), 'SynchroLens', 'Notes'));
+    dictStore = new DictStore();
     const sessionManager = new SessionManager({
       audioCapture, sttClient, translator, noteWriter, correctionDetector
     });
