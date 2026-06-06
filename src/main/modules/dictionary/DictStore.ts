@@ -78,6 +78,21 @@ export class DictStore {
     }
   }
 
+  removeEntryById(dictType: string, entryId: string): boolean {
+    for (const [key, file] of this.files) {
+      const fi = file as any;
+      if (!fi.entries || !Array.isArray(fi.entries)) continue;
+      const idx = fi.entries.findIndex((e: any) => e.id === entryId);
+      if (idx !== -1) {
+        fi.entries.splice(idx, 1);
+        fi.count = fi.entries.length;
+        this.saveMeta();
+        return true;
+      }
+    }
+    return false;
+  }
+
   private parseFile(filePath: string): DictEntry[] {
     const ext = extname(filePath).toLowerCase();
     const content = readFileSync(filePath, 'utf-8');
