@@ -27,5 +27,14 @@ export default defineConfig({
         '@shared': resolve('src/shared'),
       },
     },
+    build: {
+      rollupOptions: {
+        input: {
+          index: resolve('src/renderer/index.html'),
+          subtitle: resolve('src/renderer/subtitle.html'),
+          control: resolve('src/renderer/control.html'),
+        },
+      },
+    },
   },
 });
