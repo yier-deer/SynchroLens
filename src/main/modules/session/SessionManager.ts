@@ -324,11 +324,21 @@ export class SessionManager {
           }
         }
       }
-    } catch {
+    } catch (err) {
+      this.l.error('句子翻译失败', { sentenceId, error: (err as Error).message });
       tempResult.translation = text;
       tempResult.isFinal = true;
       session.sentences.push(tempResult);
       this.sentenceCount++;
+      if (this.onTranslateFinal) {
+        this.onTranslateFinal(session.id, {
+          sentenceId: tempResult.sentenceId,
+          original: tempResult.original,
+          translation: tempResult.translation,
+          corrections: tempResult.corrections,
+          error: (err as Error).message,
+        });
+      }
     }
   }
 }
