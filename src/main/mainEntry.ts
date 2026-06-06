@@ -15,6 +15,7 @@ import { Translator } from './modules/translate/Translator';
 import { NoteWriter } from './modules/note/NoteWriter';
 import { CorrectionDetector } from './modules/correction/CorrectionDetector';
 import { SessionManager } from './modules/session/SessionManager';
+import { FavoriteStore } from './modules/favorite/FavoriteStore';
 import type { Session } from '../shared/types';
 import { IPC_CHANNELS } from '../shared/ipcChannels';
 
@@ -36,6 +37,7 @@ let mainWindow: BrowserWindow | null = null;
 let subtitleWindow: BrowserWindow | null = null;
 let controlWindow: BrowserWindow | null = null;
 let tray: Tray | null = null;
+let favoriteStore: FavoriteStore | null = null;
 
 /** 获取预加载脚本路径（开发/生产环境适配） */
 function getPreloadPath(): string {
@@ -245,12 +247,12 @@ function setupIpcHandlers(): void {
     }
   });
 
-  ipcMain.handle('favorite:get', () => []);
-  ipcMain.handle('favorite:add', () => {});
-  ipcMain.handle('favorite:remove', () => {});
-  ipcMain.handle('favorite:remove-batch', () => {});
-  ipcMain.handle('favorite:search', () => []);
-  ipcMain.handle('favorite:export', () => {});
+  ipcMain.handle(IPC_CHANNELS.FAVORITE_GET, () => favoriteStore?.getAll() ?? []);
+  ipcMain.handle(IPC_CHANNELS.FAVORITE_ADD, (_e, payload) => favoriteStore!.add(payload));
+  ipcMain.handle(IPC_CHANNELS.FAVORITE_REMOVE, (_e, payload: { id: string }) => favoriteStore!.remove(payload.id));
+  ipcMain.handle(IPC_CHANNELS.FAVORITE_REMOVE_BATCH, (_e, payload: { ids: string[] }) => favoriteStore!.removeBatch(payload.ids));
+  ipcMain.handle(IPC_CHANNELS.FAVORITE_SEARCH, (_e, payload: { query: string }) => favoriteStore!.search(payload.query));
+  ipcMain.handle(IPC_CHANNELS.FAVORITE_EXPORT, (_e, payload: { ids: string[]; savePath: string }) => favoriteStore!.exportToMarkdown(payload.ids, payload.savePath));
   ipcMain.handle('improve:submit', () => {});
   ipcMain.handle('personal-dict:status', () => false);
   ipcMain.handle('dictionary:entries:get', () => []);
@@ -282,6 +284,7 @@ export function registerAppLifecycle(): void {
     });
     const noteWriter = new NoteWriter();
     const correctionDetector = new CorrectionDetector();
+    favoriteStore = new FavoriteStore();
     const sessionManager = new SessionManager({
       audioCapture, sttClient, translator, noteWriter, correctionDetector
     });

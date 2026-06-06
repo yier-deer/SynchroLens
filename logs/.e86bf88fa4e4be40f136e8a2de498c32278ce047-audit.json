@@ -1,0 +1,20 @@
+{
+    "keep": {
+        "days": true,
+        "amount": 7
+    },
+    "auditLog": "E:\\Trae\\Project\\七牛云\\SynchroLens\\logs\\.e86bf88fa4e4be40f136e8a2de498c32278ce047-audit.json",
+    "files": [
+        {
+            "date": 1780673136512,
+            "name": "E:\\Trae\\Project\\七牛云\\SynchroLens\\logs\\synchrolens-2026-06-05.log",
+            "hash": "15c2e92da6e0f8d21ff4c8f2c1d6d758e2d6780e2b510f98127c166aab182c6a"
+        },
+        {
+            "date": 1780675618688,
+            "name": "E:\\Trae\\Project\\七牛云\\SynchroLens\\logs\\synchrolens-2026-06-06.log",
+            "hash": "76359c75865588f608633be7e1caac066a3f55bfefed54e0aebe6f8be5a44dd3"
+        }
+    ],
+    "hashType": "sha256"
+}
