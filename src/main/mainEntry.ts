@@ -273,6 +273,11 @@ function setupIpcHandlers(): void {
   ipcMain.handle(IPC_CHANNELS.NOTES_LIST, (_e, payload: { dirPath?: string }) => noteReader!.listNotes(payload?.dirPath));
   ipcMain.handle(IPC_CHANNELS.NOTES_READ, (_e, payload: { filePath: string }) => noteReader!.readNote(payload.filePath));
   ipcMain.handle(IPC_CHANNELS.NOTES_EXPORT_ALL, (_e, payload: { savePath: string }) => {
+    const pathPattern = /^[\w\u4e00-\u9fff\s\.\-\(\)\\\/:]+$/;
+    if (!pathPattern.test(payload.savePath)) {
+      appLogger.warn('非法导出路径，已拒绝', { savePath: payload.savePath });
+      return;
+    }
     const notesDir = noteReader!.getNotesDir();
     if (process.platform === 'win32') {
       execSync(`powershell Compress-Archive -Path "${notesDir}" -DestinationPath "${payload.savePath}" -Force`);
