@@ -5,8 +5,30 @@
 
 import { app, BrowserWindow, Tray, Menu, ipcMain } from 'electron';
 import { join } from 'path';
+import { readFileSync } from 'fs';
 import appLogger from './utils/logger';
-import { setBrowserWindows, registerIPCHandlers } from './ipc/handlers';
+import { setBrowserWindows, registerIPCHandlers, setModuleRegistry } from './ipc/handlers';
+import type { ModuleRegistry } from './ipc/handlers';
+import { AudioCapture } from './modules/audio/AudioCapture';
+import { STTClient } from './modules/stt/STTClient';
+import { Translator } from './modules/translate/Translator';
+import { NoteWriter } from './modules/note/NoteWriter';
+import { CorrectionDetector } from './modules/correction/CorrectionDetector';
+import { SessionManager } from './modules/session/SessionManager';
+import type { Session } from '../shared/types';
+
+try {
+  const envPath = join(__dirname, '../../.env');
+  const envContent = readFileSync(envPath, 'utf-8');
+  for (const line of envContent.split('\n')) {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith('#')) continue;
+    const eqIdx = trimmed.indexOf('=');
+    if (eqIdx > 0) {
+      process.env[trimmed.slice(0, eqIdx).trim()] = trimmed.slice(eqIdx + 1).trim();
+    }
+  }
+} catch { appLogger.warn('.env 文件加载失败，将使用系统环境变量'); }
 
 /** 窗口引用 */
 let mainWindow: BrowserWindow | null = null;
@@ -239,6 +261,50 @@ export function registerAppLifecycle(): void {
     appLogger.info('SynchroLens 应用启动中');
     mainWindow = createMainWindow();
     createTray();
+
+    const audioCapture = new AudioCapture();
+    const sttClient = new STTClient();
+    const translator = new Translator({
+      apiKey: process.env.DEEPSEEK_API_KEY || '',
+    });
+    const noteWriter = new NoteWriter();
+    const correctionDetector = new CorrectionDetector();
+    const sessionManager = new SessionManager({
+      audioCapture, sttClient, translator, noteWriter, correctionDetector
+    });
+
+    let currentSession: Session | null = null;
+
+    const registry: ModuleRegistry = {
+      audioCapture,
+      sttClient,
+      translator,
+      noteWriter,
+      correctionDetector,
+      sessionManager: {
+        createSession(config) {
+          currentSession = sessionManager.createSession(config.audioSource);
+          try {
+            currentSession.notePath = noteWriter.createNoteFile(currentSession);
+          } catch (err) {
+            appLogger.warn('笔记文件创建失败', { error: (err as Error).message });
+          }
+          return currentSession;
+        },
+        startSession(_sessionId) {
+          if (currentSession) sessionManager.startSession(currentSession);
+        },
+        pauseSession(_sessionId) { sessionManager.pauseSession(); },
+        resumeSession(_sessionId) { sessionManager.resumeSession(); },
+        async endSession(_sessionId) { await sessionManager.endSession(); },
+        getSessionState(_sessionId) { return sessionManager.getSessionState(); },
+        updateConfig(config) { sessionManager.updateConfig(config); },
+        async triggerSummary() { await sessionManager.triggerSummary(); },
+      },
+    };
+
+    setModuleRegistry(registry);
+
     setBrowserWindows(getAllWindows());
     setupIpcHandlers();
 
