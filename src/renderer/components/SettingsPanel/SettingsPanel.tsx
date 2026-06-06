@@ -93,8 +93,10 @@ const GROUPS: SettingGroup[] = [
     key: 'vector',
     title: '🧠 向量模型',
     fields: [
+      { key: 'translation.apiEndpoint', label: 'API 地址', type: 'text', defaultValue: 'https://api.deepseek.com/v1' },
       { key: 'translation.apiKey', label: 'Embedding Key', type: 'password' },
-      { key: 'translation.model', label: 'Embedding 模型', type: 'text' },
+      { key: 'translation.fetchEmbeddingModels', label: '获取模型', type: 'button' },
+      { key: 'translation.embeddingModel', label: 'Embedding 模型', type: 'select', options: [], defaultValue: 'deepseek-chat' },
     ],
   },
   {
@@ -286,7 +288,7 @@ export function SettingsPanel({ config, onSave, onExportNotes, onClearData }: Se
     if (field.type === 'select') {
       const rawVal = getValue(config, field.key);
       const displayVal = field.key === 'stt.language' ? fromXFyunLang(String(rawVal ?? '中文')) : String(rawVal ?? field.options?.[0] ?? '');
-      const modelOpts = field.key === 'translation.model' ? translateModels : field.options || [];
+      const modelOpts = field.key === 'translation.model' ? translateModels : (field.key === 'translation.embeddingModel' ? embeddingModels : (field.options || []));
       const renderOpts = modelOpts.length > 0 ? modelOpts : (field.defaultValue ? [field.defaultValue] : []);
       return (
         <select
