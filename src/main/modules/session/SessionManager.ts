@@ -78,10 +78,10 @@ export class SessionManager {
   private activeSession: ActiveSession | null = null;
   private config: AppConfig | null = null;
   private sentenceCount = 0;
-  private onStateChange: SessionEventCallback | null = null;
-  private onSTTPartial: SessionEventCallback | null = null;
-  private onTranslatePartial: SessionEventCallback | null = null;
-  private onTranslateFinal: SessionEventCallback | null = null;
+  private onStateChangeCallbacks: Set<SessionEventCallback> = new Set();
+  private onSTTPartialCallbacks: Set<SessionEventCallback> = new Set();
+  private onTranslatePartialCallbacks: Set<SessionEventCallback> = new Set();
+  private onTranslateFinalCallbacks: Set<SessionEventCallback> = new Set();
   private onNoteSaved: SessionEventCallback | null = null;
   private onSummary: SessionEventCallback | null = null;
 
@@ -118,9 +118,8 @@ export class SessionManager {
       // 3. STT 结果 → 翻译
       this.deps.sttClient.onResult((text, isFinal, sentenceId) => {
         if (!isFinal) {
-          // 中间结果通过 IPC 推送（由上层监听器处理）
-          if (this.onSTTPartial) {
-            this.onSTTPartial(session.id, { sentenceId, text, isFinal: false });
+          for (const cb of this.onSTTPartialCallbacks) {
+            cb(session.id, { sentenceId, text, isFinal: false });
           }
           return;
         }
@@ -137,8 +136,8 @@ export class SessionManager {
 
       this.sentenceCount = 0;
 
-      if (this.onStateChange) {
-        this.onStateChange(session.id, 'running');
+      for (const cb of this.onStateChangeCallbacks) {
+        cb(session.id, 'running');
       }
     } catch (err) {
       this.l.error('会话启动失败', { error: (err as Error).message });
@@ -150,8 +149,8 @@ export class SessionManager {
     if (this.activeSession) {
       this.l.info('会话已暂停', { id: this.activeSession.session.id });
       this.deps.audioCapture.stop();
-      if (this.onStateChange) {
-        this.onStateChange(this.activeSession.session.id, 'paused');
+      for (const cb of this.onStateChangeCallbacks) {
+        cb(this.activeSession.session.id, 'paused');
       }
     }
   }
@@ -162,8 +161,8 @@ export class SessionManager {
       this.l.info('会话已恢复', { id: this.activeSession.session.id });
       const source = this.activeSession.session.audioSource;
       this.deps.audioCapture.start(source as 'system' | 'microphone');
-      if (this.onStateChange) {
-        this.onStateChange(this.activeSession.session.id, 'running');
+      for (const cb of this.onStateChangeCallbacks) {
+        cb(this.activeSession.session.id, 'running');
       }
     }
   }
@@ -183,8 +182,8 @@ export class SessionManager {
 
     this.activeSession.session.endTime = Date.now();
 
-    if (this.onStateChange) {
-      this.onStateChange(this.activeSession.session.id, 'stopped');
+    for (const cb of this.onStateChangeCallbacks) {
+      cb(this.activeSession.session.id, 'stopped');
     }
 
     this.activeSession = null;
@@ -204,23 +203,27 @@ export class SessionManager {
   }
 
   /** 注册状态变更回调 */
-  onSessionStateChange(callback: SessionEventCallback): void {
-    this.onStateChange = callback;
+  onSessionStateChange(callback: SessionEventCallback): () => void {
+    this.onStateChangeCallbacks.add(callback);
+    return () => { this.onStateChangeCallbacks.delete(callback); };
   }
 
   /** 注册 STT 中间结果回调 */
-  onSessionSTTPartial(callback: SessionEventCallback): void {
-    this.onSTTPartial = callback;
+  onSessionSTTPartial(callback: SessionEventCallback): () => void {
+    this.onSTTPartialCallbacks.add(callback);
+    return () => { this.onSTTPartialCallbacks.delete(callback); };
   }
 
   /** 注册翻译流式结果回调 */
-  onSessionTranslatePartial(callback: SessionEventCallback): void {
-    this.onTranslatePartial = callback;
+  onSessionTranslatePartial(callback: SessionEventCallback): () => void {
+    this.onTranslatePartialCallbacks.add(callback);
+    return () => { this.onTranslatePartialCallbacks.delete(callback); };
   }
 
   /** 注册翻译最终结果回调 */
-  onSessionTranslateFinal(callback: SessionEventCallback): void {
-    this.onTranslateFinal = callback;
+  onSessionTranslateFinal(callback: SessionEventCallback): () => void {
+    this.onTranslateFinalCallbacks.add(callback);
+    return () => { this.onTranslateFinalCallbacks.delete(callback); };
   }
 
   /** 触发摘要生成 */
@@ -275,8 +278,8 @@ export class SessionManager {
       let fullTranslation = '';
       for await (const token of this.deps.translator.translate(text, context)) {
         fullTranslation += token;
-        if (this.onTranslatePartial) {
-          this.onTranslatePartial(session.id, { sentenceId, translation: fullTranslation });
+        for (const cb of this.onTranslatePartialCallbacks) {
+          cb(session.id, { sentenceId, translation: fullTranslation });
         }
       }
 
@@ -300,8 +303,8 @@ export class SessionManager {
       }
 
       // 通知最终翻译结果
-      if (this.onTranslateFinal) {
-        this.onTranslateFinal(session.id, {
+      for (const cb of this.onTranslateFinalCallbacks) {
+        cb(session.id, {
           sentenceId: tempResult.sentenceId,
           original: tempResult.original,
           translation: tempResult.translation,
@@ -330,8 +333,8 @@ export class SessionManager {
       tempResult.isFinal = true;
       session.sentences.push(tempResult);
       this.sentenceCount++;
-      if (this.onTranslateFinal) {
-        this.onTranslateFinal(session.id, {
+      for (const cb of this.onTranslateFinalCallbacks) {
+        cb(session.id, {
           sentenceId: tempResult.sentenceId,
           original: tempResult.original,
           translation: tempResult.translation,
