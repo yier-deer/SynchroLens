@@ -50,21 +50,14 @@ let personalDictStore: PersonalDictStore | null = null;
 /** 渲染进程开发服务器基础 URL */
 const RENDERER_DEV_URL = process.env.ELECTRON_RENDERER_URL;
 
-/** 获取预加载脚本路径（开发/生产环境适配） */
+/** 获取预加载脚本路径 */
 function getPreloadPath(): string {
-  const isDev = !app.isPackaged;
-  if (isDev) {
-    return join(__dirname, '../../preload/index.js');
-  }
   return join(__dirname, '../preload/index.js');
 }
 
-/** 获取渲染进程入口路径或 URL */
-function getRendererEntry(page: string = 'index'): string {
-  if (RENDERER_DEV_URL) {
-    return `${RENDERER_DEV_URL}/${page}.html`;
-  }
-  return join(__dirname, `../renderer/${page}.html`);
+/** 是否处于开发模式 */
+function isDev(): boolean {
+  return !app.isPackaged;
 }
 
 /** 加载页面，开发模式用 loadURL，生产模式用 loadFile */
@@ -96,6 +89,10 @@ function createMainWindow(): BrowserWindow {
   });
 
   loadPage(win, 'index');
+
+  if (isDev()) {
+    win.webContents.openDevTools({ mode: 'right' });
+  }
 
   win.once('ready-to-show', () => {
     win.show();
