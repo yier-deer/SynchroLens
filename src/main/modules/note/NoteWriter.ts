@@ -4,7 +4,7 @@
  */
 
 import { promises as fs } from 'fs';
-import { join } from 'path';
+import { resolve, normalize, join } from 'path';
 import { homedir } from 'os';
 import { createLogger } from '../../utils/logger';
 import { NOTE_CONSTANTS } from '../../../shared/constants';
@@ -22,9 +22,11 @@ import { isCorrection } from '../../../shared/types';
 export class NoteWriter {
   private l = createLogger('NoteWriter');
   private noteDir: string;
+  private noteDirResolved: string;
 
   constructor(noteDir?: string) {
     this.noteDir = noteDir || join(homedir(), NOTE_CONSTANTS.DEFAULT_SAVE_DIR);
+    this.noteDirResolved = resolve(this.noteDir);
   }
 
   /**
@@ -119,6 +121,15 @@ export class NoteWriter {
     return join(this.noteDir, dateDir, fileName);
   }
 
+  /** 校验目标路径是否在 noteDir 内，防止 ../ 目录穿越攻击 */
+  private validatePath(targetPath: string): string {
+    const resolved = resolve(normalize(targetPath));
+    if (!resolved.startsWith(this.noteDirResolved + '\\') && !resolved.startsWith(this.noteDirResolved + '/') && resolved !== this.noteDirResolved) {
+      return '';
+    }
+    return resolved;
+  }
+
   /**
    * 带重试的文件写入
    * @param filePath - 文件路径
@@ -126,16 +137,21 @@ export class NoteWriter {
    * @param append - 是否追加（true=append, false=write）
    */
   private async retryWrite(filePath: string, content: string, append: boolean): Promise<void> {
-    await this.ensureDir(filePath);
+    const safePath = this.validatePath(filePath);
+    if (!safePath) {
+      this.l.error('路径校验失败，拒绝写入', { filePath });
+      return;
+    }
+    await this.ensureDir(safePath);
 
     let lastError: Error | null = null;
 
     for (let i = 0; i < NOTE_CONSTANTS.WRITE_RETRY_COUNT; i++) {
       try {
         if (append) {
-          await fs.appendFile(filePath, content, 'utf-8');
+          await fs.appendFile(safePath, content, 'utf-8');
         } else {
-          await fs.writeFile(filePath, content, 'utf-8');
+          await fs.writeFile(safePath, content, 'utf-8');
         }
         return;
       } catch (err) {
@@ -146,7 +162,7 @@ export class NoteWriter {
       }
     }
 
-    this.l.error('笔记写入失败', { filePath, error: lastError?.message });
+    this.l.error('笔记写入失败', { filePath: safePath, error: lastError?.message });
     throw new Error(`笔记写入失败（已重试 ${NOTE_CONSTANTS.WRITE_RETRY_COUNT} 次）: ${lastError?.message}`);
   }
 
