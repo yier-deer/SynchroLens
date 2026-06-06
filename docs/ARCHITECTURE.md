@@ -259,65 +259,99 @@ sequenceDiagram
 
 #### Main → Renderer（主进程推送）
 
-| 通道名 | 载荷类型 | 触发时机 | 说明 |
-|--------|----------|----------|------|
-| `stt:partial` | `{ sentenceId: string, text: string, isFinal: false, timestamp: number }` | STT 逐词识别 | 原文部分结果，用于实时显示 |
-| `stt:sentence` | `{ sentenceId: string, text: string, isFinal: true, timestamp: number }` | STT 判定句结束 | 原文最终结果，触发翻译 |
-| `translate:partial` | `{ sentenceId: string, translation: string, isFinal: false }` | 翻译流式输出 | 译文部分结果，字幕实时更新 |
-| `translate:final` | `{ sentenceId: string, original: string, translation: string, isFinal: true, corrections: Correction[] }` | 翻译完成 | 译文最终结果，字幕冻结 |
-| `translate:correct` | `{ sentenceId: string, corrections: Correction[] }` | 纠正检测完成 | 纠正脚注，仅更新笔记 |
-| `note:saved` | `{ sentenceId: string, notePath: string }` | 笔记写入完成 | 通知渲染层笔记已保存 |
-| `note:summary` | `{ summary: string, notePath: string }` | 摘要生成完成 | 通知渲染层摘要已生成 |
+| 通道名 | 载荷类型 | 触发时机 |
+|--------|----------|----------|
+| `stt:partial` | `{ sentenceId, text, isFinal: false, timestamp }` | STT 逐词识别 |
+| `stt:sentence` | `{ sentenceId, text, isFinal: true, timestamp }` | STT 判定句结束 |
+| `translate:partial` | `{ sentenceId, translation }` | 翻译流式输出 |
+| `translate:final` | `{ sentenceId, original, translation, isFinal: true, corrections[] }` | 翻译完成 |
+| `translate:correct` | `{ sentenceId, oldTranslation, newTranslation, reason }` | 纠正检测完成 |
+| `note:saved` | `{ filePath }` | 笔记写入完成 |
+| `note:summary` | `{ summary }` | 摘要生成完成 |
+| `session:state-change` | `{ state: 'idle'\|'running'\|'paused'\|'stopped' }` | 会话状态变更 |
 
 #### Renderer → Main（渲染进程请求）
 
-| 通道名 | 载荷类型 | 触发时机 | 说明 |
-|--------|----------|----------|------|
-| `session:start` | `{ audioSource: 'system' \| 'microphone', language: string }` | 用户点击开始 | 启动会话，初始化管道 |
-| `session:stop` | `{}` | 用户点击停止 | 停止会话，保存笔记 |
-| `session:pause` | `{}` | 用户点击暂停 | 暂停音频采集和管道 |
-| `config:update` | `{ key: string, value: unknown }` | 用户修改设置 | 运行时配置更新 |
-| `summary:trigger` | `{}` | 用户请求摘要 | 触发会话摘要生成 |
+| 通道名 | 载荷 | 用途 |
+|--------|------|------|
+| `session:start` | `{ audioSource }` | 启动会话 |
+| `session:stop` | — | 停止会话 |
+| `session:pause` | — | 暂停会话 |
+| `session:resume` | — | 恢复会话 |
+| `config:update` | `Record<string, unknown>` | 更新配置 |
+| `summary:trigger` | — | 触发摘要 |
+| `window:prepare-record` | — | 创建字幕窗+控制窗+最小化主窗 |
+| `window:exit-control` | `{ action: 'minimize'\|'stop' }` | 隐藏/关闭控制窗 |
+| `window:toggle-subtitle` | `{ visible: boolean }` | 字幕窗 show/hide |
+| `favorite:get` | — | 获取所有收藏 |
+| `favorite:add` | `{ text, noteFileName, noteFilePath }` | 添加收藏 |
+| `favorite:remove` | `{ id }` | 删除收藏 |
+| `favorite:remove-batch` | `{ ids[] }` | 批量删除 |
+| `favorite:search` | `{ query }` | 搜索收藏 |
+| `favorite:export` | `{ ids[], savePath }` | 导出收藏 |
+| `improve:submit` | `{ original, improved, reason, context }` | 提交改进翻译 |
+| `personal-dict:status` | — | 查询个人词典开关状态 |
+| `dictionary:entries:get` | `{ dictType }` | 获取词典条目 |
+| `dictionary:entry:remove` | `{ dictType, entryId }` | 删除词典条目 |
+| `dictionary:file:load` | `{ dictType, filePath }` | 加载词典文件 |
+| `dictionary:file:remove` | `{ dictType, filePath }` | 移除词典文件 |
+| `dictionary:file:toggle` | `{ dictType, filePath, enabled }` | 启用/禁用词典文件 |
+| `notes:list` | `{ dirPath? }` | 获取笔记文件树 |
+| `notes:read` | `{ filePath }` | 读取笔记内容 |
+| `notes:export-all` | `{ savePath }` | 导出全部笔记为 .zip |
+| `data:clear` | `{ types[] }` | 清除历史数据 |
+| `log:send` | `{ level, module, message, data? }` | 渲染进程日志上报 |
+
+> 完整通道定义见 `src/shared/ipcChannels.ts`，接口契约见 `docs/API.md`
 
 ### 5.2 Preload 暴露 API
 
 ```typescript
 // src/preload/index.ts — contextBridge 暴露结构
 interface SynchroLensAPI {
-  // 事件监听（Main → Renderer）
-  on(channel: IPCChannel, callback: (data: any) => void): () => void;  // 返回取消监听函数
-  off(channel: IPCChannel, callback: (data: any) => void): void;
+  // 事件监听
+  on(channel: string, callback: (data: unknown) => void): () => void;
+  off(channel: string, callback: (data: unknown) => void): void;
+  once(channel: string, callback: (data: unknown) => void): void;
 
-  // 操作请求（Renderer → Main）
-  startSession(config: SessionStartConfig): Promise<void>;
+  // 会话控制
+  startSession(audioSource: 'system' | 'microphone'): Promise<void>;
   stopSession(): Promise<void>;
   pauseSession(): Promise<void>;
-  updateConfig(key: string, value: unknown): Promise<void>;
+  resumeSession(): Promise<void>;
+  updateConfig(config: Record<string, unknown>): Promise<void>;
   triggerSummary(): Promise<void>;
+
+  // 窗口控制
+  prepareRecord(): Promise<void>;
+  exitControl(action: 'minimize' | 'stop'): Promise<void>;
+  toggleSubtitle(visible: boolean): Promise<void>;
+
+  // 收藏
+  addFavorite(text: string, noteFileName: string, noteFilePath: string): Promise<void>;
+  removeFavorite(id: string): Promise<void>;
+  removeFavorites(ids: string[]): Promise<void>;
+  getFavorites(): Promise<Favorite[]>;
+  searchFavorites(query: string): Promise<Favorite[]>;
+  exportFavorites(ids: string[], savePath: string): Promise<void>;
+
+  // 改进与词典
+  submitImprovement(original: string, improved: string, reason: string, context: string): Promise<void>;
+  isPersonalDictEnabled(): Promise<boolean>;
+  getDictionaryEntries(dictType: string): Promise<DictEntry[]>;
+  removeDictionaryEntry(dictType: string, entryId: string): Promise<void>;
+  loadDictionaryFile(dictType: string, filePath: string): Promise<void>;
+  removeDictionaryFile(dictType: string, filePath: string): Promise<void>;
+
+  // 笔记与数据
+  listNotes(dirPath?: string): Promise<NoteTreeItem[]>;
+  readNote(filePath: string): Promise<string>;
+  exportAllNotes(savePath: string): Promise<void>;
+  clearData(types: ('notes' | 'favorites' | 'personalDict')[]): Promise<void>;
+
+  // 日志
+  log(level: LogLevel, module: string, message: string, data?: unknown): void;
 }
-```
-
-### 5.3 通道常量定义
-
-```typescript
-// src/shared/ipcChannels.ts
-export const IPC_CHANNELS = {
-  // Main → Renderer
-  STT_PARTIAL: 'stt:partial',
-  STT_SENTENCE: 'stt:sentence',
-  TRANSLATE_PARTIAL: 'translate:partial',
-  TRANSLATE_FINAL: 'translate:final',
-  TRANSLATE_CORRECT: 'translate:correct',
-  NOTE_SAVED: 'note:saved',
-  NOTE_SUMMARY: 'note:summary',
-
-  // Renderer → Main
-  SESSION_START: 'session:start',
-  SESSION_STOP: 'session:stop',
-  SESSION_PAUSE: 'session:pause',
-  CONFIG_UPDATE: 'config:update',
-  SUMMARY_TRIGGER: 'summary:trigger',
-} as const;
 ```
 
 ---
@@ -368,19 +402,21 @@ export const IPC_CHANNELS = {
 4. NoteWriter 在笔记中追加纠正脚注：`> [纠正] 原译"XXX" → 修正为"YYY"（原因：...）`
 5. 字幕不做任何修改
 
-### 6.4 双窗口架构
+### 6.4 三窗口架构
 
-**决策**：使用三个 BrowserWindow——主窗口、悬浮字幕窗口、控制悬浮窗。
+**决策**：使用三个独立 BrowserWindow——主窗口、悬浮字幕窗口、控制悬浮窗。
 
 **理由**：
-- **悬浮字幕**：始终置顶、半透明背景，不遮挡演讲内容，独立窗口确保置顶行为可靠
-- **控制悬浮窗**：迷你控制按钮（开始/暂停/停止），不依赖主窗口可见
-- **主窗口**：三栏布局（原文/译文/笔记），完整功能界面
+- **悬浮字幕**：始终置顶、透明背景、鼠标穿透，不遮挡演讲内容，独立窗口确保置顶行为可靠
+- **控制悬浮窗**：极简控制条（开始/停止 + 字幕开关 + 最小化 + 退出确认），类似录屏软件风格
+- **主窗口**：三栏布局（侧边导航 + 内容区 + 摘要面板），SplashScreen 启动画面
 
 **实现要点**：
-- 悬浮字幕窗口：`alwaysOnTop: true`, `transparent: true`, `frame: false`
-- 控制悬浮窗：`alwaysOnTop: true`, 小尺寸，可拖拽
-- 主窗口：标准窗口，可最小化而不影响悬浮窗
+- 字幕窗：`alwaysOnTop: true`, `transparent: true`, `frame: false`, `skipTaskbar: true`，800×120
+- 控制窗：`alwaysOnTop: true`, 固定 320×48，不可调整大小，右上角初始位置
+- 主窗口：1200×800，由 electron-vite 多页面构建驱动三窗口 HTML 入口
+- 系统托盘：应用启动时创建，右键菜单"显示控制窗"（恢复被最小化的控制窗）/ "退出 SynchroLens"
+- 控制窗 X 退出：弹窗三选 — 最小化到托盘 / 关闭控制窗口(停止录制) / 取消
 
 ### 6.5 音频采集方案
 
