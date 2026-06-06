@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { FileText, Star, BookOpen, Settings, Radio, ChevronRight, ChevronDown, Folder, File } from 'lucide-react';
-import type { NoteTreeItem } from '../../shared/types';
+import type { NoteTreeItem } from '@shared/types';
 
 export type ViewType = 'notes' | 'favorites' | 'dictionary' | 'settings';
 
@@ -150,7 +150,7 @@ function TreeNode({
         </button>
         {isExpanded && item.children && (
           <div className="mt-0.5">
-            {item.children.map(child => (
+            {item.children.map((child: NoteTreeItem) => (
               <TreeNode
                 key={child.path}
                 item={child}
