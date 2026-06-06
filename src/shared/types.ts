@@ -204,6 +204,76 @@ export interface ConfigUpdatePayload {
   [key: string]: unknown;
 }
 
+// ===== 收藏与词典数据类型 =====
+
+/** 收藏条目 */
+export interface Favorite {
+  /** 收藏唯一标识 */
+  id: string;
+  /** 收藏的文本内容 */
+  text: string;
+  /** 来源笔记文件名 */
+  noteFileName: string;
+  /** 来源笔记完整路径 */
+  noteFilePath: string;
+  /** 收藏时间（ISO 8601 字符串） */
+  createdAt: string;
+}
+
+/** 笔记文件树节点 */
+export interface NoteTreeItem {
+  /** 文件/目录名称 */
+  name: string;
+  /** 完整路径 */
+  path: string;
+  /** 类型 */
+  type: 'directory' | 'file';
+  /** 子节点（仅目录有） */
+  children?: NoteTreeItem[];
+  /** 修改时间（毫秒，epoch time） */
+  modifiedAt?: number;
+}
+
+/** 个人词典条目 */
+export interface DictEntry {
+  /** 条目唯一标识 */
+  id: string;
+  /** 原文文本 */
+  source: string;
+  /** 改进后的译文 */
+  target: string;
+  /** 改进意见说明 */
+  improvement: string;
+  /** 来源笔记文件名 */
+  sourceNote: string;
+  /** 收录时间（ISO 8601 字符串） */
+  createdAt: string;
+}
+
+/** 改进提交载荷 */
+export interface ImprovementPayload {
+  /** 原始译文 */
+  original: string;
+  /** 用户改进版 */
+  improved: string;
+  /** 改进意见 */
+  reason: string;
+  /** 上下文（原文+前后句） */
+  context: string;
+}
+
+/** 外部词典文件信息 */
+export interface DictFile {
+  /** 文件名 */
+  name: string;
+  /** 文件路径 */
+  path: string;
+  /** 条目数量 */
+  count: number;
+  /** 是否启用 */
+  enabled: boolean;
+}
+
 // ===== 枚举与联合类型 =====
 
 /** 会话状态 */

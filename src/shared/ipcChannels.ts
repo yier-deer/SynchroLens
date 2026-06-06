@@ -13,35 +13,53 @@
  * 包含所有主进程与渲染进程之间的通信通道名称
  */
 export const IPC_CHANNELS = {
-  // ===== Main → Renderer（主进程推送） =====
-
-  /** 语音识别实时部分结果 */
+  // ===== Main → Renderer =====
   STT_PARTIAL: 'stt:partial',
-  /** 语音识别完整句子结果 */
   STT_SENTENCE: 'stt:sentence',
-  /** 翻译实时部分结果 */
   TRANSLATE_PARTIAL: 'translate:partial',
-  /** 翻译最终完整结果 */
   TRANSLATE_FINAL: 'translate:final',
-  /** 翻译纠错结果 */
   TRANSLATE_CORRECT: 'translate:correct',
-  /** 笔记已保存通知 */
   NOTE_SAVED: 'note:saved',
-  /** 笔记摘要结果 */
   NOTE_SUMMARY: 'note:summary',
+  SESSION_STATE_CHANGE: 'session:state-change',
 
-  // ===== Renderer → Main（渲染进程请求） =====
-
-  /** 启动同传会话 */
+  // ===== Renderer → Main =====
   SESSION_START: 'session:start',
-  /** 停止同传会话 */
   SESSION_STOP: 'session:stop',
-  /** 暂停/恢复同传会话 */
   SESSION_PAUSE: 'session:pause',
-  /** 更新配置 */
+  SESSION_RESUME: 'session:resume',
   CONFIG_UPDATE: 'config:update',
-  /** 触发摘要生成 */
   SUMMARY_TRIGGER: 'summary:trigger',
+  WINDOW_PREPARE_RECORD: 'window:prepare-record',
+  WINDOW_EXIT_CONTROL: 'window:exit-control',
+  WINDOW_TOGGLE_SUBTITLE: 'window:toggle-subtitle',
+
+  // ===== 收藏 =====
+  FAVORITE_ADD: 'favorite:add',
+  FAVORITE_REMOVE: 'favorite:remove',
+  FAVORITE_REMOVE_BATCH: 'favorite:remove-batch',
+  FAVORITE_GET: 'favorite:get',
+  FAVORITE_SEARCH: 'favorite:search',
+  FAVORITE_EXPORT: 'favorite:export',
+
+  // ===== 改进 =====
+  IMPROVE_SUBMIT: 'improve:submit',
+  PERSONAL_DICT_STATUS: 'personal-dict:status',
+
+  // ===== 词典 =====
+  DICTIONARY_ENTRIES_GET: 'dictionary:entries:get',
+  DICTIONARY_ENTRY_REMOVE: 'dictionary:entry:remove',
+  DICTIONARY_FILE_LOAD: 'dictionary:file:load',
+  DICTIONARY_FILE_REMOVE: 'dictionary:file:remove',
+  DICTIONARY_FILE_TOGGLE: 'dictionary:file:toggle',
+
+  // ===== 笔记 =====
+  NOTES_LIST: 'notes:list',
+  NOTES_READ: 'notes:read',
+  NOTES_EXPORT_ALL: 'notes:export-all',
+
+  // ===== 数据管理 =====
+  DATA_CLEAR: 'data:clear',
 } as const;
 
 /**
