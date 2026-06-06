@@ -3,7 +3,7 @@
  * 创建 BrowserWindow 实例，注册 IPC 处理器，管理应用生命周期
  */
 
-import { app, BrowserWindow } from 'electron';
+import { app, BrowserWindow, Tray, Menu, ipcMain } from 'electron';
 import { join } from 'path';
 import appLogger from './utils/logger';
 
@@ -11,6 +11,7 @@ import appLogger from './utils/logger';
 let mainWindow: BrowserWindow | null = null;
 let subtitleWindow: BrowserWindow | null = null;
 let controlWindow: BrowserWindow | null = null;
+let tray: Tray | null = null;
 
 /** 获取预加载脚本路径（开发/生产环境适配） */
 function getPreloadPath(): string {
@@ -22,12 +23,12 @@ function getPreloadPath(): string {
 }
 
 /** 获取渲染进程入口路径 */
-function getRendererPath(): string {
+function getRendererPath(page: string = 'index'): string {
   const isDev = !app.isPackaged;
   if (isDev) {
-    return join(__dirname, '../../renderer/index.html');
+    return join(__dirname, `../../renderer/${page}.html`);
   }
-  return join(__dirname, '../renderer/index.html');
+  return join(__dirname, `../renderer/${page}.html`);
 }
 
 /**
@@ -85,7 +86,7 @@ function createSubtitleWindow(): BrowserWindow {
     show: false,
   });
 
-  win.loadFile(getRendererPath());
+  win.loadFile(getRendererPath('subtitle'));
   win.setIgnoreMouseEvents(true, { forward: true });
 
   return win;
@@ -113,7 +114,7 @@ function createControlWindow(): BrowserWindow {
     show: false,
   });
 
-  win.loadFile(getRendererPath());
+  win.loadFile(getRendererPath('control'));
 
   return win;
 }
@@ -151,12 +152,97 @@ export function getControlWindow(): BrowserWindow | null {
 }
 
 /**
+ * 创建系统托盘
+ */
+function createTray(): void {
+  const iconPath = join(__dirname, '../../resources/icon.png');
+  try {
+    tray = new Tray(iconPath);
+    const contextMenu = Menu.buildFromTemplate([
+      {
+        label: '显示控制窗',
+        click: () => {
+          if (controlWindow && !controlWindow.isDestroyed()) {
+            controlWindow.show();
+            controlWindow.focus();
+          }
+        }
+      },
+      {
+        label: '退出 SynchroLens',
+        click: () => { app.quit(); }
+      }
+    ]);
+    tray.setToolTip('SynchroLens');
+    tray.setContextMenu(contextMenu);
+    appLogger.info('系统托盘已创建');
+  } catch {
+    appLogger.warn('系统托盘图标加载失败，跳过');
+  }
+}
+
+function setupIpcHandlers(): void {
+  ipcMain.handle('window:prepare-record', () => {
+    if (!subtitleWindow || subtitleWindow.isDestroyed()) {
+      subtitleWindow = createSubtitleWindow();
+      subtitleWindow.show();
+    }
+    if (!controlWindow || controlWindow.isDestroyed()) {
+      controlWindow = createControlWindow();
+      controlWindow.show();
+    }
+    if (mainWindow) { mainWindow.minimize(); }
+  });
+
+  ipcMain.handle('window:exit-control', (_event, payload: { action: string }) => {
+    if (payload.action === 'minimize') {
+      if (controlWindow && !controlWindow.isDestroyed()) { controlWindow.hide(); }
+    } else if (payload.action === 'stop') {
+      if (controlWindow && !controlWindow.isDestroyed()) { controlWindow.close(); }
+      if (subtitleWindow && !subtitleWindow.isDestroyed()) { subtitleWindow.close(); }
+    }
+  });
+
+  ipcMain.handle('window:toggle-subtitle', (_event, payload: { visible: boolean }) => {
+    if (subtitleWindow && !subtitleWindow.isDestroyed()) {
+      payload.visible ? subtitleWindow.show() : subtitleWindow.hide();
+    }
+  });
+
+  ipcMain.handle('session:start', () => {});
+  ipcMain.handle('session:stop', () => {});
+  ipcMain.handle('session:pause', () => {});
+  ipcMain.handle('session:resume', () => {});
+  ipcMain.handle('config:update', () => {});
+  ipcMain.handle('summary:trigger', () => {});
+  ipcMain.handle('favorite:get', () => []);
+  ipcMain.handle('favorite:add', () => {});
+  ipcMain.handle('favorite:remove', () => {});
+  ipcMain.handle('favorite:remove-batch', () => {});
+  ipcMain.handle('favorite:search', () => []);
+  ipcMain.handle('favorite:export', () => {});
+  ipcMain.handle('improve:submit', () => {});
+  ipcMain.handle('personal-dict:status', () => false);
+  ipcMain.handle('dictionary:entries:get', () => []);
+  ipcMain.handle('dictionary:entry:remove', () => {});
+  ipcMain.handle('dictionary:file:load', () => {});
+  ipcMain.handle('dictionary:file:remove', () => {});
+  ipcMain.handle('dictionary:file:toggle', () => {});
+  ipcMain.handle('notes:list', () => []);
+  ipcMain.handle('notes:read', () => '');
+  ipcMain.handle('notes:export-all', () => {});
+  ipcMain.handle('data:clear', () => {});
+}
+
+/**
  * 注册应用生命周期
  */
 export function registerAppLifecycle(): void {
   app.whenReady().then(() => {
     appLogger.info('SynchroLens 应用启动中');
     mainWindow = createMainWindow();
+    createTray();
+    setupIpcHandlers();
 
     app.on('activate', () => {
       if (BrowserWindow.getAllWindows().length === 0) {
