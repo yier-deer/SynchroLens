@@ -395,12 +395,17 @@ export function registerAppLifecycle(): void {
     setupIpcHandlers();
 
     globalShortcut.register('CommandOrControl+Shift+S', () => {
-      const state = sessionManager.getSessionState();
-      if (state === 'running') {
-        sessionManager.endSession();
-      } else {
-        const sess = sessionManager.createSession('system');
-        sessionManager.startSession(sess);
+      try {
+        if (!registry) return;
+        const state = registry.sessionManager.getSessionState('');
+        if (state === 'running') {
+          registry.sessionManager.endSession('');
+        } else {
+          const sess = registry.sessionManager.createSession({ audioSource: 'system' });
+          registry.sessionManager.startSession(sess.id);
+        }
+      } catch (err) {
+        appLogger.error('快捷键回调异常', { error: (err as Error).message });
       }
     });
 
