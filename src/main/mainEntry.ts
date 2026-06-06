@@ -47,6 +47,9 @@ let noteReader: NoteReader | null = null;
 let dictStore: DictStore | null = null;
 let personalDictStore: PersonalDictStore | null = null;
 
+/** 渲染进程开发服务器基础 URL */
+const RENDERER_DEV_URL = process.env.ELECTRON_RENDERER_URL;
+
 /** 获取预加载脚本路径（开发/生产环境适配） */
 function getPreloadPath(): string {
   const isDev = !app.isPackaged;
@@ -56,13 +59,21 @@ function getPreloadPath(): string {
   return join(__dirname, '../preload/index.js');
 }
 
-/** 获取渲染进程入口路径 */
-function getRendererPath(page: string = 'index'): string {
-  const isDev = !app.isPackaged;
-  if (isDev) {
-    return join(__dirname, `../../renderer/${page}.html`);
+/** 获取渲染进程入口路径或 URL */
+function getRendererEntry(page: string = 'index'): string {
+  if (RENDERER_DEV_URL) {
+    return `${RENDERER_DEV_URL}/${page}.html`;
   }
   return join(__dirname, `../renderer/${page}.html`);
+}
+
+/** 加载页面，开发模式用 loadURL，生产模式用 loadFile */
+function loadPage(win: BrowserWindow, page: string): void {
+  if (RENDERER_DEV_URL) {
+    win.loadURL(`${RENDERER_DEV_URL}/${page}.html`);
+  } else {
+    win.loadFile(join(__dirname, `../renderer/${page}.html`));
+  }
 }
 
 /**
@@ -84,7 +95,7 @@ function createMainWindow(): BrowserWindow {
     show: false,
   });
 
-  win.loadFile(getRendererPath());
+  loadPage(win, 'index');
 
   win.once('ready-to-show', () => {
     win.show();
@@ -121,7 +132,7 @@ function createSubtitleWindow(): BrowserWindow {
     show: false,
   });
 
-  win.loadFile(getRendererPath('subtitle'));
+  loadPage(win, 'subtitle');
   win.setIgnoreMouseEvents(true, { forward: true });
 
   win.on('closed', () => {
@@ -154,7 +165,7 @@ function createControlWindow(): BrowserWindow {
     show: false,
   });
 
-  win.loadFile(getRendererPath('control'));
+  loadPage(win, 'control');
 
   win.on('closed', () => {
     controlWindow = null;
