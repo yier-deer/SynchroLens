@@ -11,7 +11,7 @@ import { useIPC } from '../../hooks/useIPC';
 import { DEFAULT_CONFIG } from '@shared/types';
 import type { AppConfig, NoteTreeItem } from '@shared/types';
 
-function SettingsWithActions({ config, onSave }: { config: AppConfig; onSave: (partial: Partial<AppConfig>) => void }) {
+function SettingsWithActions({ config, onSave }: { config: AppConfig; onSave: (config: AppConfig) => void }) {
   const { showToast } = useToast();
   const [showExportConfirm, setShowExportConfirm] = useState(false);
 
