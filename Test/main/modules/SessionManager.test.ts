@@ -27,6 +27,7 @@ function createMockDeps(): SessionDependencies {
       buildContextWindow: jest.fn(),
       translateFull: jest.fn(),
       generateSummary: jest.fn(),
+      setApiKey: jest.fn(),
     },
     noteWriter: {
       createNoteFile: jest.fn(),

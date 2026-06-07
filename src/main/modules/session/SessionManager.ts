@@ -21,6 +21,7 @@ interface ISTTClient {
   disconnect(): void;
   onResult(callback: (text: string, isFinal: boolean, sentenceId: string) => void): void;
   get isConnected(): boolean;
+  language?: string;
 }
 
 /** 翻译客户端接口 */
@@ -30,6 +31,8 @@ interface ITranslator {
   translateFull(text: string, context: { original: string; translation: string }[]): Promise<string>;
   generateSummary(sentences: TranslationResult[]): Promise<string>;
   setApiKey(key: string): void;
+  model?: string;
+  targetLanguage?: string;
 }
 
 /** 笔记写入模块接口 */

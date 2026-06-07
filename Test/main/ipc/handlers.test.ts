@@ -40,6 +40,7 @@ describe('ipc handlers 通道处理器', () => {
         translate: jest.fn(),
         translateFull: jest.fn(),
         generateSummary: jest.fn(),
+        setApiKey: jest.fn(),
       },
       noteWriter: {
         createNoteFile: jest.fn(),
