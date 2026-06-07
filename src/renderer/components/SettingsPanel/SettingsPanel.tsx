@@ -10,7 +10,7 @@ import type { AppConfig } from '@shared/types';
 /** STT 语言显示名 → 讯飞编码映射 */
 const STT_LANG_MAP: Record<string, string> = {
   '中文': 'zh_cn',
-  '英文': 'en',
+  '英文': 'en_us',
   '日文': 'ja',
   '韩文': 'ko',
 };
