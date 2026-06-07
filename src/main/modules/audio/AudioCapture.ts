@@ -37,13 +37,16 @@ function findFfmpeg(): string | null {
   }
 }
 
-/** 获取 Windows dshow 音频设备列表 */
+/** 获取 Windows dshow 音频设备列表（ffmpeg 输出在 stderr，非 stdout） */
 function getDshowDevices(ffmpegPath: string): string[] {
   try {
-    const output = execSync(`"${ffmpegPath}" -list_devices true -f dshow -i dummy`, {
+    execSync(`"${ffmpegPath}" -list_devices true -f dshow -i dummy`, {
       stdio: 'pipe',
       timeout: 5000,
-    }).toString();
+    });
+  } catch (err: any) {
+    // ffmpeg 设备列表总是非零退出；输出在 stderr
+    const output = (err.stderr || err.stdout || '').toString();
     const devices: string[] = [];
     const match = output.match(/"([^"]+)"/g);
     if (match) {
@@ -53,9 +56,8 @@ function getDshowDevices(ffmpegPath: string): string[] {
       }
     }
     return devices;
-  } catch {
-    return [];
   }
+  return [];
 }
 
 /** 从设备列表中找麦克风设备 */
@@ -185,10 +187,7 @@ export class AudioCapture {
       const devices = getDshowDevices(ffmpegPath);
       this.l.info('dshow 设备列表', { devices });
 
-      let micDevice = deviceId;
-      if (!micDevice) {
-        micDevice = findMicrophone(devices);
-      }
+      const micDevice = deviceId || findMicrophone(devices);
 
       if (micDevice) {
         this.l.info('使用麦克风设备', { device: micDevice });

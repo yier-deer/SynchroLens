@@ -495,7 +495,8 @@ export function registerAppLifecycle(): void {
           return currentSession;
         },
         startSession(_sessionId) {
-          if (currentSession) sessionManager.startSession(currentSession);
+          if (currentSession) return sessionManager.startSession(currentSession);
+          return Promise.resolve();
         },
         pauseSession(_sessionId) { sessionManager.pauseSession(); },
         resumeSession(_sessionId) { sessionManager.resumeSession(); },
@@ -519,7 +520,9 @@ export function registerAppLifecycle(): void {
           registry.sessionManager.endSession('');
         } else {
           const sess = registry.sessionManager.createSession({ audioSource: 'system' });
-          registry.sessionManager.startSession(sess.id);
+          registry.sessionManager.startSession(sess.id).catch((err: Error) =>
+            appLogger.error('快捷键启动会话失败', { error: err.message })
+          );
         }
       } catch (err) {
         appLogger.error('快捷键回调异常', { error: (err as Error).message });

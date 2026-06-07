@@ -107,8 +107,8 @@ export class SessionManager {
   }
 
   /** 启动翻译会话 */
-  startSession(session: Session): void {
-    this.l.info('会话已启动', { id: session.id });
+  async startSession(session: Session): Promise<void> {
+    this.l.info('会话启动中', { id: session.id });
 
     try {
       const appId = process.env.XFYUN_APP_ID || '';
@@ -116,7 +116,13 @@ export class SessionManager {
       const apiSecret = process.env.XFYUN_API_SECRET || '';
       this.deps.sttClient.connect({ appId, apiKey, apiSecret });
 
-      this.deps.audioCapture.start(session.audioSource as 'system' | 'microphone');
+      try {
+        await this.deps.audioCapture.start(session.audioSource as 'system' | 'microphone');
+      } catch (audioErr) {
+        this.l.error('音频采集启动失败，断开 STT', { error: (audioErr as Error).message });
+        this.deps.sttClient.disconnect();
+        throw audioErr;
+      }
 
       // 2. 建立管线：Audio → STT
       const unsubscribe = this.deps.audioCapture.onData((pcmBuffer) => {
@@ -147,8 +153,11 @@ export class SessionManager {
       for (const cb of this.onStateChangeCallbacks) {
         cb(session.id, 'running');
       }
+
+      this.l.info('会话已启动', { id: session.id });
     } catch (err) {
       this.l.error('会话启动失败', { error: (err as Error).message });
+      throw err;
     }
   }
 

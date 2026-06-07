@@ -46,7 +46,7 @@ export interface ModuleRegistry {
   };
   sessionManager: {
     createSession(config: { audioSource: 'system' | 'microphone' }): { id: string; startTime: number; audioSource: string; sentences: unknown[] };
-    startSession(sessionId: string): void;
+    startSession(sessionId: string): Promise<void>;
     pauseSession(sessionId: string): void;
     resumeSession(sessionId: string): void;
     endSession(sessionId: string): Promise<void>;
@@ -104,7 +104,7 @@ export function registerIPCHandlers(): void {
     try {
       if (!registry) { appLogger.warn('ModuleRegistry 未初始化，跳过 session:start'); return null; }
       const session = registry.sessionManager.createSession(payload);
-      registry.sessionManager.startSession(session.id);
+      await registry.sessionManager.startSession(session.id);
       return session;
     } catch (err) {
       appLogger.error('session:start handler 异常', { error: (err as Error).message });
