@@ -441,6 +441,21 @@ export function registerAppLifecycle(): void {
       }
     });
 
+    // Ctrl+Shift+P 暂停/恢复会话
+    globalShortcut.register('CommandOrControl+Shift+P', () => {
+      try {
+        if (!registry) return;
+        const state = registry.sessionManager.getSessionState('');
+        if (state === 'running') {
+          registry.sessionManager.pauseSession('');
+        } else if (state === 'paused') {
+          registry.sessionManager.resumeSession('');
+        }
+      } catch (err) {
+        appLogger.error('快捷键回调异常', { error: (err as Error).message });
+      }
+    });
+
     app.on('activate', () => {
       if (BrowserWindow.getAllWindows().length === 0) {
         mainWindow = createMainWindow();
