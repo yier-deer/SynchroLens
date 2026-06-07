@@ -131,6 +131,7 @@ function createSubtitleWindow(): BrowserWindow {
   });
 
   loadPage(win, 'subtitle');
+  // 字幕窗允许鼠标穿透，右键拖动需要时取消 ignore 即可
   win.setIgnoreMouseEvents(true, { forward: true });
 
   win.on('closed', () => {
@@ -242,7 +243,22 @@ function createTray(): void {
 }
 
 function setupIpcHandlers(): void {
-  ipcMain.handle(IPC_CHANNELS.WINDOW_PREPARE_RECORD, () => {
+  ipcMain.handle(IPC_CHANNELS.WINDOW_PREPARE_RECORD, async () => {
+    // 密钥检测：必须配置讯飞 STT 和 DeepSeek 翻译
+    const sttReady = process.env.XFYUN_APP_ID && process.env.XFYUN_API_KEY && process.env.XFYUN_API_SECRET;
+    const translateReady = process.env.DEEPSEEK_API_KEY;
+    if (!sttReady || !translateReady) {
+      const missing = [];
+      if (!sttReady) missing.push('语音识别（讯飞）');
+      if (!translateReady) missing.push('翻译服务（DeepSeek）');
+      await dialog.showMessageBox({
+        type: 'warning',
+        title: 'SynchroLens',
+        message: '服务未配置',
+        detail: `请先在「设置」中填写以下服务的密钥：\n${missing.join('\n')}`,
+      });
+      return;
+    }
     if (!subtitleWindow || subtitleWindow.isDestroyed()) {
       subtitleWindow = createSubtitleWindow();
       subtitleWindow.show();
@@ -300,7 +316,7 @@ function setupIpcHandlers(): void {
       { source: payload.original, target: payload.improved, improvement: payload.reason, sourceNote: payload.context || '' },
     );
     // 向量化并存储
-    if ((embeddingClient as any)?.apiKey) {
+    if (embeddingClient) {
       try {
         const combined = `原文: ${payload.original}\n改进译文: ${payload.improved}\n改进建议: ${payload.reason}`;
         const embeddings = await embeddingClient.embedTexts([combined]);

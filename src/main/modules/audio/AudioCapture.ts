@@ -119,9 +119,10 @@ export class AudioCapture {
 
     switch (platform) {
       case 'win32':
+        // 使用 sox -d 默认音频输入设备（如需系统回路请启用立体声混音）
         return {
           cmd: 'sox',
-          args: ['-t', 'waveaudio', 'default', '-r', rate, '-c', '1', '-b', '16', '-e', 'signed-integer', '-t', 'raw', '-'],
+          args: ['-d', '-r', rate, '-c', '1', '-b', '16', '-e', 'signed-integer', '-t', 'raw', '-'],
         };
       case 'darwin':
         return {

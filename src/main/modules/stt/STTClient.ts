@@ -58,6 +58,8 @@ export class STTClient {
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   private connected = false;
   private currentSentenceId = '';
+  /** 当前识别语言，默认中文；SessionManager.updateConfig 会更新为配置值 */
+  public language = 'zh_cn';
   private l = createLogger('STTClient');
 
   /**
@@ -107,6 +109,11 @@ export class STTClient {
     }
   }
 
+  /** 更新识别语言 */
+  setLanguage(lang: string): void {
+    this.language = lang || 'zh_cn';
+  }
+
   /** 发送首帧（携带鉴权和业务参数） */
   private sendFirstFrame(): void {
     if (!this.ws || !this.config) return;
@@ -114,7 +121,7 @@ export class STTClient {
     const frame = JSON.stringify({
       common: { app_id: this.config.appId },
       business: {
-        language: 'zh_cn',
+        language: this.language,
         domain: 'iat',
         accent: 'mandarin',
         vad_eos: 2000,

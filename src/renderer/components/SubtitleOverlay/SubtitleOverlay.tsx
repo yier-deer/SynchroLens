@@ -15,7 +15,6 @@ const STYLE = {
     borderRadius: '8px',
     maxWidth: '800px',
     minHeight: '60px',
-    WebkitAppRegion: 'drag' as const,
   },
   source: {
     fontSize: '14px',
