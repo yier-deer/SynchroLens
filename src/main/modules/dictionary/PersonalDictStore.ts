@@ -2,7 +2,13 @@ import { app } from 'electron';
 import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'fs';
 import { join, dirname } from 'path';
 import type { DictEntry } from '../../../shared/types';
+import { cosineSimilarity } from '../vector/EmbeddingClient';
 import { createLogger } from '../../utils/logger';
+
+/** 带向量的词典条目 */
+interface DictEntryWithEmbedding extends DictEntry {
+  embedding?: number[];
+}
 
 function genId(): string {
   return `pdict-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
@@ -11,21 +17,21 @@ function genId(): string {
 export class PersonalDictStore {
   private l = createLogger('PersonalDictStore');
   private dataPath: string;
-  private items: DictEntry[] = [];
+  private items: DictEntryWithEmbedding[] = [];
 
   constructor() {
     this.dataPath = join(app.getPath('userData'), 'SynchroLens', 'personal-dict.json');
     this.load();
   }
 
-  add(entry: { source: string; target: string; improvement: string; sourceNote: string }): DictEntry {
-    const item: DictEntry = { id: genId(), ...entry, createdAt: new Date().toISOString() };
+  add(entry: { source: string; target: string; improvement: string; sourceNote: string }, embedding?: number[]): DictEntryWithEmbedding {
+    const item: DictEntryWithEmbedding = { id: genId(), ...entry, createdAt: new Date().toISOString(), embedding };
     this.items.push(item);
     this.save();
     return item;
   }
 
-  getAll(): DictEntry[] {
+  getAll(): DictEntryWithEmbedding[] {
     return [...this.items];
   }
 
@@ -48,6 +54,17 @@ export class PersonalDictStore {
 
   isEnabled(): boolean {
     return this.items.length > 0;
+  }
+
+  /** 余弦相似度搜索与查询最相似的条目 */
+  searchBySimilarity(queryEmbedding: number[], topK: number = 5, threshold: number = 0.7): DictEntryWithEmbedding[] {
+    return this.items
+      .filter((item) => item.embedding && item.embedding.length > 0)
+      .map((item) => ({ item, score: cosineSimilarity(queryEmbedding, item.embedding!) }))
+      .filter(({ score }) => score >= threshold)
+      .sort((a, b) => b.score - a.score)
+      .slice(0, topK)
+      .map(({ item }) => item);
   }
 
   private load(): void {

@@ -22,6 +22,7 @@ import { NoteReader } from './modules/note/NoteReader';
 import { DictStore } from './modules/dictionary/DictStore';
 import { PersonalDictStore } from './modules/dictionary/PersonalDictStore';
 import { ConfigStore } from './modules/config/ConfigStore';
+import { EmbeddingClient } from './modules/vector/EmbeddingClient';
 import type { AppConfig, Session } from '../shared/types';
 import { IPC_CHANNELS } from '../shared/ipcChannels';
 
@@ -48,6 +49,7 @@ let noteReader: NoteReader | null = null;
 let dictStore: DictStore | null = null;
 let personalDictStore: PersonalDictStore | null = null;
 let configStore: ConfigStore | null = null;
+let embeddingClient: EmbeddingClient | null = null;
 
 /** 渲染进程开发服务器基础 URL */
 const RENDERER_DEV_URL = process.env.ELECTRON_RENDERER_URL;
@@ -262,8 +264,25 @@ function setupIpcHandlers(): void {
   ipcMain.handle(IPC_CHANNELS.FAVORITE_REMOVE_BATCH, (_e, payload: { ids: string[] }) => favoriteStore!.removeBatch(payload.ids));
   ipcMain.handle(IPC_CHANNELS.FAVORITE_SEARCH, (_e, payload: { query: string }) => favoriteStore!.search(payload.query));
   ipcMain.handle(IPC_CHANNELS.FAVORITE_EXPORT, (_e, payload: { ids: string[]; savePath: string }) => favoriteStore!.exportToMarkdown(payload.ids, payload.savePath));
-  ipcMain.handle(IPC_CHANNELS.IMPROVE_SUBMIT, (_e, payload: { original: string; improved: string; reason: string; context: string }) => {
-    personalDictStore!.add({ source: payload.original, target: payload.improved, improvement: payload.reason, sourceNote: '' });
+  ipcMain.handle(IPC_CHANNELS.IMPROVE_SUBMIT, async (_e, payload: { original: string; improved: string; reason: string; context: string }) => {
+    personalDictStore!.add(
+      { source: payload.original, target: payload.improved, improvement: payload.reason, sourceNote: payload.context || '' },
+    );
+    // 向量化并存储
+    if (embeddingClient?.apiKey) {
+      try {
+        const combined = `原文: ${payload.original}\n改进译文: ${payload.improved}\n改进建议: ${payload.reason}`;
+        const embeddings = await embeddingClient.embedTexts([combined]);
+        if (embeddings.length > 0) {
+          personalDictStore!.add(
+            { source: payload.original, target: payload.improved, improvement: payload.reason, sourceNote: payload.context || '' },
+            embeddings[0],
+          );
+        }
+      } catch (err) {
+        appLogger.warn('改进意见向量化失败', { error: (err as Error).message });
+      }
+    }
   });
   ipcMain.handle(IPC_CHANNELS.PERSONAL_DICT_STATUS, () => !!process.env.DEEPSEEK_API_KEY);
   ipcMain.handle(IPC_CHANNELS.DICTIONARY_ENTRIES_GET, (_e, payload: { dictType: string }) => dictStore!.getEntries(payload.dictType));
@@ -354,6 +373,15 @@ export function registerAppLifecycle(): void {
     // 加载持久化配置并覆盖 process.env
     const savedConfig = configStore.load();
     if (savedConfig.stt?.appId) process.env.XFYUN_APP_ID = savedConfig.stt.appId;
+    if (savedConfig.stt?.apiKey) process.env.XFYUN_API_KEY = savedConfig.stt.apiKey;
+    if (savedConfig.stt?.apiSecret) process.env.XFYUN_API_SECRET = savedConfig.stt.apiSecret;
+    if (savedConfig.translation?.apiKey) process.env.DEEPSEEK_API_KEY = savedConfig.translation.apiKey;
+
+    embeddingClient = new EmbeddingClient({
+      apiKey: savedConfig.vector?.apiKey || process.env.DEEPSEEK_API_KEY || '',
+      apiEndpoint: savedConfig.vector?.apiEndpoint || 'https://api.deepseek.com',
+      model: savedConfig.vector?.model || 'deepseek-embedding',
+    });
     if (savedConfig.stt?.apiKey) process.env.XFYUN_API_KEY = savedConfig.stt.apiKey;
     if (savedConfig.stt?.apiSecret) process.env.XFYUN_API_SECRET = savedConfig.stt.apiSecret;
     if (savedConfig.translation?.apiKey) process.env.DEEPSEEK_API_KEY = savedConfig.translation.apiKey;
