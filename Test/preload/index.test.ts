@@ -49,7 +49,7 @@ describe('preload index', () => {
 
     const calls = contextBridge.exposeInMainWorld.mock.calls;
     expect(calls.length).toBeGreaterThan(0);
-    expect(calls[0][0]).toBe('synchroLens');
+    expect(calls[0][0]).toBe('synchrolens');
   });
 
   it('暴露的 API 应包含 on/off/once 方法', () => {

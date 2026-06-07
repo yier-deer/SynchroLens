@@ -29,7 +29,7 @@ function fromXFyunLang(code: string): string {
 /** SettingsPanel 属性 */
 interface SettingsPanelProps {
   config: AppConfig;
-  onSave: (config: Partial<AppConfig>) => void;
+  onSave: (config: AppConfig) => void;
   onExportNotes?: () => void;
   onClearData?: () => void;
 }
