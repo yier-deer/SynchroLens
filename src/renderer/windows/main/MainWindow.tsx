@@ -79,8 +79,8 @@ export function MainWindow() {
   }, []);
 
   const handlePrepareRecord = useCallback(() => {
-    ipc.startSession('system').catch(() => {});
-  }, [ipc]);
+    window.synchrolens.prepareRecord().catch(() => {});
+  }, []);
 
   const handleConfigSave = useCallback((partial: Partial<AppConfig>) => {
     setConfig(prev => {
