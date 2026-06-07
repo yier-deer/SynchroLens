@@ -61,10 +61,6 @@ export class STTClient {
   private currentSentenceId = '';
   /** 当前句累积文本（wpgs 模式下 isFinal 帧只含标点） */
   private accumulatedText = '';
-  /** 上次收到部分结果的时间戳 */
-  private lastPartialTime = 0;
-  /** 定时 flush 句子的 interval */
-  private flushInterval: ReturnType<typeof setInterval> | null = null;
   /** 当前识别语言 */
   public language = 'zh_cn';
   /** 音频帧计数（用于诊断管线是否通畅） */
@@ -104,10 +100,8 @@ export class STTClient {
         this.connected = true;
         this.reconnectCount = 0;
         this.accumulatedText = '';
-        this.lastPartialTime = Date.now();
         this.currentSentenceId = generateSentenceId();
         this.l.info('STT WebSocket 已连接');
-        this.startFlushTimer();
         this.sendFirstFrame();
       });
 
@@ -202,7 +196,6 @@ export class STTClient {
         // 累积文本（wpgs 模式下每帧是增量，isFinal 帧可能只含标点）
         if (text) {
           this.accumulatedText += text;
-          this.lastPartialTime = Date.now();
           this.l.info('STT 结果', { text, isFinal, totalMessages: this.messageCount, audioFrames: this.audioFrameCount, accumulated: this.accumulatedText.substring(0, 80) });
         }
 
@@ -267,8 +260,6 @@ export class STTClient {
     this.l.info('STT 连接断开');
     this.closed = true;
 
-    this.stopFlushTimer();
-
     if (this.reconnectTimer) {
       clearTimeout(this.reconnectTimer);
       this.reconnectTimer = null;
@@ -298,32 +289,6 @@ export class STTClient {
 
     this.connected = false;
     this.ws = null;
-  }
-
-  /** 启动周期性 flush 定时器（每 2.5 秒检查是否有累积文本可提交） */
-  private startFlushTimer(): void {
-    this.stopFlushTimer();
-    this.flushInterval = setInterval(() => {
-      const text = this.accumulatedText.trim();
-      if (!text || !this.connected) return;
-      const elapsed = Date.now() - this.lastPartialTime;
-      if (elapsed >= 2000) {
-        this.l.info('定时flush句', { text: text.substring(0, 60), elapsed });
-        const finishId = this.currentSentenceId;
-        this.currentSentenceId = generateSentenceId();
-        this.accumulatedText = '';
-        for (const cb of this.resultCallbacks) {
-          try { cb(text, true, finishId); } catch { /* ignore */ }
-        }
-      }
-    }, 2500);
-  }
-
-  private stopFlushTimer(): void {
-    if (this.flushInterval) {
-      clearInterval(this.flushInterval);
-      this.flushInterval = null;
-    }
   }
 
   /**

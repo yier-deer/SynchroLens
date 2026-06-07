@@ -82,6 +82,12 @@ export class SessionManager {
   private activeSession: ActiveSession | null = null;
   private config: AppConfig | null = null;
   private sentenceCount = 0;
+  /** 当前句子的累积文本（跨 STT 断连保持） */
+  private partialCache = { text: '', sentenceId: '', lastUpdate: 0 };
+  /** 上次触发翻译的时间 */
+  private lastTranslationTime = 0;
+  /** 周期性翻译定时器 */
+  private translationTimer: ReturnType<typeof setInterval> | null = null;
   private onStateChangeCallbacks: Set<SessionEventCallback> = new Set();
   private onSTTPartialCallbacks: Set<SessionEventCallback> = new Set();
   private onTranslatePartialCallbacks: Set<SessionEventCallback> = new Set();
@@ -129,18 +135,28 @@ export class SessionManager {
         this.deps.sttClient.sendAudio(pcmBuffer);
       });
 
-      // 3. STT 结果 → 翻译
+      // 3. STT 结果 → 累积 + 翻译
       this.deps.sttClient.onResult((text, isFinal, sentenceId) => {
         if (!isFinal) {
+          // 累积到缓存中
+          if (text) {
+            this.partialCache.text += text;
+            this.partialCache.sentenceId = sentenceId;
+            this.partialCache.lastUpdate = Date.now();
+          }
           for (const cb of this.onSTTPartialCallbacks) {
-            cb(session.id, { sentenceId, text, isFinal: false });
+            cb(session.id, { sentenceId, text: this.partialCache.text, isFinal: false });
           }
           return;
         }
 
-        // 最终结果 → 触发翻译
-        const context = session.sentences.slice(-5).filter((s) => s.isFinal);
-        this.translateSentence(session, sentenceId, text, context);
+        // 如果是 isFinal 或定时器触发 → 翻译累积文本
+        const fullText = text || this.partialCache.text;
+        if (fullText.trim()) {
+          const context = session.sentences.slice(-5).filter((s) => s.isFinal);
+          this.translateSentence(session, sentenceId || this.partialCache.sentenceId, fullText.trim(), context);
+          this.partialCache = { text: '', sentenceId: '', lastUpdate: 0 };
+        }
       });
 
       this.activeSession = {
@@ -149,6 +165,22 @@ export class SessionManager {
       };
 
       this.sentenceCount = 0;
+
+      // 周期性扫描翻译：每 1.5s 检查是否有累积文本可提交
+      this.translationTimer = setInterval(() => {
+        if (!this.activeSession) return;
+        const text = this.partialCache.text.trim();
+        if (!text || text.length < 3) return;
+        const elapsed = Date.now() - this.partialCache.lastUpdate;
+        const sinceLast = Date.now() - this.lastTranslationTime;
+        // 文本在增长但超过 1.5s 无更新 → 触发翻译
+        if (elapsed >= 1500 && sinceLast >= 2000) {
+          this.l.info('周期触发翻译', { text: text.substring(0, 60), elapsed, sinceLast });
+          const ctx = this.activeSession.session.sentences.slice(-5).filter((s) => s.isFinal);
+          this.translateSentence(this.activeSession.session, this.partialCache.sentenceId, text, ctx);
+          this.partialCache = { text: '', sentenceId: '', lastUpdate: 0 };
+        }
+      }, 1500);
 
       for (const cb of this.onStateChangeCallbacks) {
         cb(session.id, 'running');
@@ -192,6 +224,20 @@ export class SessionManager {
     }
 
     this.l.info('会话结束中', { id: this.activeSession.session.id });
+
+    if (this.translationTimer) {
+      clearInterval(this.translationTimer);
+      this.translationTimer = null;
+    }
+
+    // flush 剩余累积文本
+    const remaining = this.partialCache.text.trim();
+    if (remaining.length >= 3) {
+      this.l.info('结束前 flush 剩余句', { text: remaining.substring(0, 60) });
+      const ctx = this.activeSession.session.sentences.slice(-5).filter((s) => s.isFinal);
+      await this.translateSentence(this.activeSession.session, this.partialCache.sentenceId, remaining, ctx);
+    }
+    this.partialCache = { text: '', sentenceId: '', lastUpdate: 0 };
 
     try {
       this.deps.audioCapture.stop();
@@ -313,6 +359,8 @@ export class SessionManager {
     text: string,
     context: { original: string; translation: string }[],
   ): Promise<void> {
+    this.lastTranslationTime = Date.now();
+
     const tempResult: TranslationResult = {
       sentenceId,
       original: text,

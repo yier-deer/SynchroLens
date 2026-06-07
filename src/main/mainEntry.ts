@@ -473,14 +473,6 @@ export function registerAppLifecycle(): void {
     sessionManager.onSessionTranslateFinal((_sessionId, data) => {
       const d = data as { sentenceId: string; original: string; translation: string; corrections: unknown[] };
       sendToAllWindows(IPC_CHANNELS.TRANSLATE_FINAL, data);
-      if (currentSession?.notePath && d.original) {
-        noteWriter.appendEntry(
-          currentSession.notePath,
-          d.original,
-          d.translation,
-          Date.now(),
-        ).catch(err => appLogger.warn('笔记写入失败', { error: (err as Error).message }));
-      }
     });
 
     const registry: ModuleRegistry = {
