@@ -14,13 +14,8 @@ interface TranslatorConfig {
   model?: string;
 }
 
-/** 中文 → 英文翻译系统提示 */
-const SYSTEM_PROMPT_BASE = `你是一个专业的实时翻译助手。你的任务是将用户提供的外语语音识别文本翻译成自然流畅的{target}。
-规则：
-1. 保持原文语义，不增删信息
-2. 译文需符合{target}表达习惯，避免直译
-3. 每次只翻译当前提供的句子，不要重复之前的翻译
-4. 对于专业术语，采用通用译法`;
+/** 极简翻译系统提示（无思考，直译） */
+const SYSTEM_PROMPT_BASE = `只输出译文，不要解释。将输入文本翻译成{target}。`;
 
 function getSystemPrompt(targetLanguage: string): string {
   return SYSTEM_PROMPT_BASE.replace(/\{target\}/g, targetLanguage === 'zh-CN' ? '中文' : targetLanguage);
@@ -75,7 +70,8 @@ export class Translator {
           model: this.model,
           messages,
           stream: true,
-          temperature: TRANSLATE_CONSTANTS.TEMPERATURE,
+          max_tokens: 256,
+          temperature: 0,
         }),
         signal: AbortSignal.timeout(TRANSLATE_CONSTANTS.TRANSLATION_TIMEOUT_MS),
       });
@@ -216,16 +212,12 @@ export class Translator {
     return summary;
   }
 
-  /** 构建 API 请求消息数组 */
+  /** 构建 API 请求消息数组（极简模式） */
   private buildMessages(text: string, context: TranslationPair[]): { role: string; content: string }[] {
-    const messages: { role: string; content: string }[] = [{ role: 'system', content: getSystemPrompt(this.targetLanguage) }];
-
-    if (context.length > 0) {
-      const ctxWindow = this.buildContextWindow(context, TRANSLATE_CONSTANTS.CONTEXT_WINDOW_SIZE);
-      messages.push({ role: 'user', content: `以下是最近的翻译上下文作为参考：\n${ctxWindow}` });
-    }
-
-    messages.push({ role: 'user', content: `请翻译：${text}` });
+    const messages: { role: string; content: string }[] = [
+      { role: 'system', content: getSystemPrompt(this.targetLanguage) },
+      { role: 'user', content: text },
+    ];
     return messages;
   }
 }

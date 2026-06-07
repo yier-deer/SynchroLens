@@ -326,7 +326,7 @@ export class SessionManager {
       for await (const token of this.deps.translator.translate(text, context)) {
         fullTranslation += token;
         for (const cb of this.onTranslatePartialCallbacks) {
-          cb(session.id, { sentenceId, translation: fullTranslation });
+          cb(session.id, { sentenceId, translation: fullTranslation, original: text });
         }
       }
 

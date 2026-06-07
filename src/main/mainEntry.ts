@@ -432,21 +432,19 @@ export function registerAppLifecycle(): void {
     if (savedConfig.stt?.appId) process.env.XFYUN_APP_ID = savedConfig.stt.appId;
     if (savedConfig.stt?.apiKey) process.env.XFYUN_API_KEY = savedConfig.stt.apiKey;
     if (savedConfig.stt?.apiSecret) process.env.XFYUN_API_SECRET = savedConfig.stt.apiSecret;
-    if (savedConfig.translation?.apiKey) process.env.DEEPSEEK_API_KEY = savedConfig.translation.apiKey;
+    if (savedConfig.stt?.language) sttClient.setLanguage(savedConfig.stt.language);
+    if (savedConfig.translation?.apiKey) {
+      process.env.DEEPSEEK_API_KEY = savedConfig.translation.apiKey;
+      translator.setApiKey(savedConfig.translation.apiKey);
+      if (savedConfig.translation.model) translator.setModel(savedConfig.translation.model);
+      if (savedConfig.translation.targetLanguage) translator.setTargetLanguage(savedConfig.translation.targetLanguage);
+    }
 
     embeddingClient = new EmbeddingClient({
       apiKey: savedConfig.vector?.apiKey || '',
       apiEndpoint: savedConfig.vector?.apiEndpoint || 'https://ark.cn-beijing.volces.com/api/v3',
       model: savedConfig.vector?.model || 'doubao-embedding-vision-251215',
     });
-    if (savedConfig.stt?.apiKey) process.env.XFYUN_API_KEY = savedConfig.stt.apiKey;
-    if (savedConfig.stt?.apiSecret) process.env.XFYUN_API_SECRET = savedConfig.stt.apiSecret;
-    if (savedConfig.translation?.apiKey) process.env.DEEPSEEK_API_KEY = savedConfig.translation.apiKey;
-    if (savedConfig.translation?.apiKey) {
-      translator.setApiKey(savedConfig.translation.apiKey);
-      if (savedConfig.translation.model) translator.setModel(savedConfig.translation.model);
-      if (savedConfig.translation.targetLanguage) translator.setTargetLanguage(savedConfig.translation.targetLanguage);
-    }
     const sessionManager = new SessionManager({
       audioCapture, sttClient, translator: translator as any, noteWriter, correctionDetector
     });

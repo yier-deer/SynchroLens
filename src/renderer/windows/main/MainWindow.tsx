@@ -128,6 +128,18 @@ export function MainWindow() {
   const isRecording = session.sessionState === 'running';
   const isNotes = activeView === 'notes';
 
+  // 录制停止后自动刷新笔记列表，并切换到最新笔记
+  useEffect(() => {
+    if (session.sessionState === 'stopped' && session.notePath) {
+      setLastNotePath(session.notePath);
+      // 延迟给文件系统写入时间
+      setTimeout(() => {
+        setSelectedNote({ name: '', path: session.notePath || '', type: 'file' });
+        setActiveView('notes');
+      }, 500);
+    }
+  }, [session.sessionState, session.notePath]);
+
   const handleViewChange = useCallback((view: ViewType) => {
     setActiveView(view);
     setSelectedNote(null);

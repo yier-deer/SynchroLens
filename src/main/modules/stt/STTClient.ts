@@ -58,7 +58,9 @@ export class STTClient {
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   private connected = false;
   private currentSentenceId = '';
-  /** 当前识别语言，默认中文；SessionManager.updateConfig 会更新为配置值 */
+  /** 当前句累积文本（wpgs 模式下 isFinal 帧只含标点） */
+  private accumulatedText = '';
+  /** 当前识别语言 */
   public language = 'zh_cn';
   /** 音频帧计数（用于诊断管线是否通畅） */
   private audioFrameCount = 0;
@@ -76,6 +78,10 @@ export class STTClient {
     this.config = config;
     this.reconnectCount = 0;
     this.currentSentenceId = generateSentenceId();
+    this.accumulatedText = '';
+    this.audioFrameCount = 0;
+    this.messageCount = 0;
+    this.droppedFrameCount = 0;
     this.l.info('STT 连接中', { url: STT_CONSTANTS.WS_URL, language: this.language });
     this.doConnect();
   }
@@ -91,6 +97,8 @@ export class STTClient {
       this.ws.on('open', () => {
         this.connected = true;
         this.reconnectCount = 0;
+        this.accumulatedText = '';
+        this.currentSentenceId = generateSentenceId();
         this.l.info('STT WebSocket 已连接');
         this.sendFirstFrame();
       });
@@ -107,6 +115,16 @@ export class STTClient {
       this.ws.on('close', () => {
         this.l.info('STT WebSocket 已断开');
         this.connected = false;
+        // 断连时如果还有未完成的累积文本，作为完整句子提交
+        if (this.accumulatedText.trim()) {
+          this.l.info('STT 断连时提交累积句', { text: this.accumulatedText.trim().substring(0, 60) });
+          const finishId = this.currentSentenceId;
+          this.currentSentenceId = generateSentenceId();
+          for (const cb of this.resultCallbacks) {
+            try { cb(this.accumulatedText.trim(), true, finishId); } catch { /* ignore */ }
+          }
+          this.accumulatedText = '';
+        }
         this.notifyClose();
         this.attemptReconnect();
       });
@@ -130,7 +148,7 @@ export class STTClient {
         language: this.language,
         domain: 'iat',
         accent: 'mandarin',
-        vad_eos: 2000,
+        vad_eos: 1500,
         dwa: 'wpgs',
       },
       data: {
@@ -173,21 +191,24 @@ export class STTClient {
         const text = words.join('');
         const isFinal = result.ls === true || msg.data.isEnd === 1;
 
-        // 任何有文本的结果都记录
+        // 累积文本（wpgs 模式下每帧是增量，isFinal 帧可能只含标点）
         if (text) {
-          this.l.info('STT 结果', { text, isFinal, totalMessages: this.messageCount, audioFrames: this.audioFrameCount });
+          this.accumulatedText += text;
+          this.l.info('STT 结果', { text, isFinal, totalMessages: this.messageCount, audioFrames: this.audioFrameCount, accumulated: this.accumulatedText.substring(0, 80) });
         }
+
+        const finalizingId = this.currentSentenceId;
+        const finalizingText = this.accumulatedText;
 
         if (isFinal) {
           this.currentSentenceId = generateSentenceId();
+          this.accumulatedText = '';
         }
 
         for (const cb of this.resultCallbacks) {
           try {
-            cb(text, isFinal, this.currentSentenceId);
-          } catch {
-            // 忽略回调异常
-          }
+            cb(isFinal ? finalizingText : text, isFinal, finalizingId);
+          } catch { /* ignore */ }
         }
       }
     } catch {
