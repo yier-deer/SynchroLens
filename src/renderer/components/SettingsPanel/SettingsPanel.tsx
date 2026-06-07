@@ -110,7 +110,6 @@ const GROUPS: SettingGroup[] = [
     title: '📝 笔记设置',
     fields: [
       { key: 'note.saveDir', label: '保存目录', type: 'text', defaultValue: '' },
-      { key: 'note.autoSave', label: '自动保存', type: 'toggle' },
       { key: 'note.autoSummary', label: '自动总结', type: 'toggle' },
       { key: 'note.summaryThreshold', label: '摘要阈值(句)', type: 'number', defaultValue: '20' },
     ],
@@ -277,10 +276,28 @@ export function SettingsPanel({ config, onSave, onExportNotes, onClearData }: Se
       return (
         <button
           key={field.key}
-          style={{ ...S.toggle, background: isOn ? '#2563eb' : '#374151' }}
+          style={{
+            ...S.toggle,
+            background: isOn ? '#2563eb' : '#4b5563',
+            position: 'relative' as const,
+            transition: 'background 0.25s ease',
+          }}
           onClick={() => handleChange(field.key, !isOn)}
         >
-          <span style={{ fontSize: 11, marginLeft: isOn ? 18 : 2 }}>●</span>
+          <span
+            style={{
+              display: 'inline-block',
+              width: '16px',
+              height: '16px',
+              borderRadius: '50%',
+              background: '#ffffff',
+              position: 'absolute',
+              top: '3px',
+              left: isOn ? '21px' : '3px',
+              transition: 'left 0.25s ease',
+              boxShadow: '0 1px 3px rgba(0,0,0,0.3)',
+            }}
+          />
         </button>
       );
     }
