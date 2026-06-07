@@ -80,10 +80,10 @@ const GROUPS: SettingGroup[] = [
     title: '🌐 翻译服务',
     fields: [
       { key: 'translation.provider', label: '服务商', type: 'select', options: ['deepseek', 'openai'] },
-      { key: 'translation.apiEndpoint', label: 'API 地址', type: 'text', defaultValue: 'https://api.deepseek.com/v1' },
+      { key: 'translation.apiEndpoint', label: 'API 地址', type: 'text', defaultValue: 'https://api.deepseek.com' },
       { key: 'translation.apiKey', label: 'API Key', type: 'password' },
       { key: 'translation.fetchModels', label: '获取模型', type: 'button' },
-      { key: 'translation.model', label: '模型', type: 'select', options: [], defaultValue: 'deepseek-chat' },
+      { key: 'translation.model', label: '模型', type: 'select', options: [], defaultValue: 'deepseek-v4-flash' },
       { key: 'translation.contextCorrection', label: '上下文纠正', type: 'toggle' },
       { key: 'translation.contextWindowSize', label: '上下文窗口', type: 'number' },
       { key: 'translation.targetLanguage', label: '目标语言', type: 'select', options: ['中文'] },
@@ -93,10 +93,10 @@ const GROUPS: SettingGroup[] = [
     key: 'vector',
     title: '🧠 向量模型',
     fields: [
-      { key: 'translation.apiEndpoint', label: 'API 地址', type: 'text', defaultValue: 'https://api.deepseek.com/v1' },
+      { key: 'translation.apiEndpoint', label: 'API 地址', type: 'text', defaultValue: 'https://api.deepseek.com' },
       { key: 'translation.apiKey', label: 'Embedding Key', type: 'password' },
       { key: 'translation.fetchEmbeddingModels', label: '获取模型', type: 'button' },
-      { key: 'translation.embeddingModel', label: 'Embedding 模型', type: 'select', options: [], defaultValue: 'deepseek-chat' },
+      { key: 'translation.embeddingModel', label: 'Embedding 模型', type: 'select', options: [], defaultValue: 'deepseek-v4-flash' },
     ],
   },
   {
@@ -242,7 +242,7 @@ export function SettingsPanel({ config, onSave, onExportNotes, onClearData }: Se
         setEmbeddingModels(names);
       }
     } catch (err) {
-      const fallback = ['deepseek-chat', 'deepseek-reasoner'];
+      const fallback = ['deepseek-v4-flash', 'deepseek-v4-pro'];
       if (target === 'translate') setTranslateModels(fallback);
       else setEmbeddingModels(fallback);
     } finally {

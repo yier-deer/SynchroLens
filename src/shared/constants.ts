@@ -44,9 +44,9 @@ export const TRANSLATE_CONSTANTS = Object.freeze({
   /** 最大重试间隔（毫秒） */
   MAX_RETRY_INTERVAL_MS: 8000,
   /** DeepSeek API 基础地址 */
-  API_BASE_URL: 'https://api.deepseek.com/v1',
+  API_BASE_URL: 'https://api.deepseek.com',
   /** 翻译模型名称 */
-  MODEL: 'deepseek-chat',
+  MODEL: 'deepseek-v4-flash',
   /** 翻译温度参数，越低越确定 */
   TEMPERATURE: 0.3,
 } as const);
