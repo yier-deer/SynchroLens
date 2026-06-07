@@ -202,8 +202,6 @@ export function FavoritesView({ onNavigateToNote, cardStyle = '暗夜蓝' }: Fav
                 <Trash2 className="w-4 h-4" />
                 删除选中
               </button>
-              <button
-              </button>
             </div>
           </div>
         </div>
