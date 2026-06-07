@@ -62,6 +62,7 @@ describe('端到端演示 — 完整翻译管道', () => {
         buildContextWindow: jest.fn().mockReturnValue(''),
         translateFull: jest.fn().mockResolvedValue('完整翻译'),
         generateSummary: jest.fn().mockResolvedValue('摘要：会议讨论了项目进度。'),
+        setApiKey: jest.fn(),
       },
       noteWriter: {
         createNoteFile: jest.fn().mockReturnValue('/notes/test.md'),
