@@ -220,17 +220,18 @@ const S = {
  * 分组管理应用配置（8 分组）
  */
 export function SettingsPanel({ config, onSave, onExportNotes, onClearData }: SettingsPanelProps) {
-  const [localConfig] = useState({ ...config });
+  // 本地草稿：所有修改只更新草稿，点击保存时才提交
+  const [draftConfig, setDraftConfig] = useState<AppConfig>({ ...config });
   const [translateModels, setTranslateModels] = useState<string[]>([]);
   const [embeddingModels, setEmbeddingModels] = useState<string[]>([]);
   const [modelsLoading, setModelsLoading] = useState(false);
 
   const fetchModels = useCallback(async (endpointKey: string, target: 'translate' | 'embedding') => {
-    const baseUrl = (getValue(config, endpointKey) as string) || 'https://api.deepseek.com/v1';
+    const baseUrl = (getValue(draftConfig, endpointKey) as string) || 'https://api.deepseek.com/v1';
     setModelsLoading(true);
     try {
       const resp = await fetch(`${baseUrl}/models`, {
-        headers: { Authorization: `Bearer ${getValue(config, 'translation.apiKey')}` },
+        headers: { Authorization: `Bearer ${getValue(draftConfig, 'translation.apiKey')}` },
       });
       if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
       const data = await resp.json() as { data?: { id: string }[] };
@@ -247,21 +248,34 @@ export function SettingsPanel({ config, onSave, onExportNotes, onClearData }: Se
     } finally {
       setModelsLoading(false);
     }
-  }, [config]);
+  }, [draftConfig]);
 
+  // 仅更新本地草稿，不提交
   const handleChange = useCallback(
     (key: string, value: string | boolean | number) => {
       const [section, field] = key.split('.');
       if (section && field) {
         const finalValue = key === 'stt.language' ? toXFyunLang(String(value)) : value;
-        onSave({ [section]: { [field]: finalValue } } as unknown as Partial<AppConfig>);
+        setDraftConfig(prev => {
+          const next = { ...prev };
+          const sectionKey = section as keyof AppConfig;
+          if (next[sectionKey] && typeof next[sectionKey] === 'object') {
+            (next[sectionKey] as Record<string, unknown>)[field] = finalValue;
+          }
+          return next;
+        });
       }
     },
-    [onSave],
+    [],
   );
 
+  // 点击保存时提交完整草稿
+  const handleSaveClick = useCallback(() => {
+    onSave(draftConfig);
+  }, [onSave, draftConfig]);
+
   const renderField = (field: SettingField) => {
-    const val = getValue(config, field.key);
+    const val = getValue(draftConfig, field.key);
 
     if (field.type === 'toggle') {
       const isOn = !!val;
@@ -277,7 +291,7 @@ export function SettingsPanel({ config, onSave, onExportNotes, onClearData }: Se
     }
 
     if (field.type === 'select') {
-      const rawVal = getValue(config, field.key);
+      const rawVal = getValue(draftConfig, field.key);
       const displayVal = field.key === 'stt.language' ? fromXFyunLang(String(rawVal ?? '中文')) : String(rawVal ?? field.options?.[0] ?? '');
       const modelOpts = field.key === 'translation.model' ? translateModels : (field.key === 'translation.embeddingModel' ? embeddingModels : (field.options || []));
       const renderOpts = modelOpts.length > 0 ? modelOpts : (field.defaultValue ? [field.defaultValue] : []);
@@ -370,7 +384,7 @@ export function SettingsPanel({ config, onSave, onExportNotes, onClearData }: Se
           ))}
         </div>
       ))}
-      <button style={S.saveBtn} onClick={() => onSave({...config})}>💾 保存设置</button>
+      <button style={S.saveBtn} onClick={handleSaveClick}>💾 保存设置</button>
     </div>
   );
 }
