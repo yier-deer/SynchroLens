@@ -123,7 +123,9 @@ describe('NoteWriter Markdown 笔记写入模块', () => {
 
       expect(mockAppendFile).toHaveBeenCalledTimes(1);
       const callArgs = mockAppendFile.mock.calls[0];
-      expect(callArgs[0]).toBe(filePath);
+      // validatePath normalizes to platform path
+      const normalized = callArgs[0];
+      expect(normalized.replace(/\\/g, '/')).toContain('custom/notes/2026-06-05/14-30.md');
       expect(callArgs[1]).toContain('Hello');
       expect(callArgs[1]).toContain('你好');
     });
