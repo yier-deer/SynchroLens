@@ -15,12 +15,16 @@ interface TranslatorConfig {
 }
 
 /** 中文 → 英文翻译系统提示 */
-const SYSTEM_PROMPT = `你是一个专业的实时翻译助手。你的任务是将用户提供的外语语音识别文本翻译成自然流畅的中文。
+const SYSTEM_PROMPT_BASE = `你是一个专业的实时翻译助手。你的任务是将用户提供的外语语音识别文本翻译成自然流畅的{target}。
 规则：
 1. 保持原文语义，不增删信息
-2. 译文需符合中文表达习惯，避免直译
+2. 译文需符合{target}表达习惯，避免直译
 3. 每次只翻译当前提供的句子，不要重复之前的翻译
 4. 对于专业术语，采用通用译法`;
+
+function getSystemPrompt(targetLanguage: string): string {
+  return SYSTEM_PROMPT_BASE.replace(/\{target\}/g, targetLanguage === 'zh-CN' ? '中文' : targetLanguage);
+}
 
 /**
  * DeepSeek 流式翻译客户端
@@ -29,6 +33,7 @@ export class Translator {
   private apiKey: string;
   private baseUrl: string;
   private model: string;
+  private targetLanguage: string = 'zh-CN';
   private l = createLogger('Translator');
 
   constructor(config: TranslatorConfig) {
@@ -39,6 +44,10 @@ export class Translator {
 
   setApiKey(key: string): void {
     this.apiKey = key;
+  }
+
+  setTargetLanguage(lang: string): void {
+    this.targetLanguage = lang;
   }
 
   /**
@@ -205,7 +214,7 @@ export class Translator {
 
   /** 构建 API 请求消息数组 */
   private buildMessages(text: string, context: TranslationPair[]): { role: string; content: string }[] {
-    const messages: { role: string; content: string }[] = [{ role: 'system', content: SYSTEM_PROMPT }];
+    const messages: { role: string; content: string }[] = [{ role: 'system', content: getSystemPrompt(this.targetLanguage) }];
 
     if (context.length > 0) {
       const ctxWindow = this.buildContextWindow(context, TRANSLATE_CONSTANTS.CONTEXT_WINDOW_SIZE);
