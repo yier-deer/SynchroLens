@@ -65,8 +65,8 @@ describe('constants 业务常量', () => {
     });
 
     it('应包含正确的 API 配置', () => {
-      expect(TRANSLATE_CONSTANTS.API_BASE_URL).toBe('https://api.deepseek.com/v1');
-      expect(TRANSLATE_CONSTANTS.MODEL).toBe('deepseek-chat');
+      expect(TRANSLATE_CONSTANTS.API_BASE_URL).toBe('https://api.deepseek.com');
+      expect(TRANSLATE_CONSTANTS.MODEL).toBe('deepseek-v4-flash');
       expect(TRANSLATE_CONSTANTS.TEMPERATURE).toBe(0.3);
     });
 
