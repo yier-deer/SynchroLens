@@ -115,7 +115,9 @@ export function registerIPCHandlers(): void {
   ipcMain.handle(IPC_CHANNELS.SESSION_STOP, async () => {
     try {
       if (!registry) { appLogger.warn('ModuleRegistry 未初始化，跳过 session:stop'); return null; }
+      appLogger.info('收到 session:stop 请求');
       await registry.sessionManager.endSession('');
+      appLogger.info('session:stop 完成');
       return null;
     } catch (err) {
       appLogger.error('session:stop handler 异常', { error: (err as Error).message });

@@ -117,12 +117,9 @@ function createSubtitleWindow(): BrowserWindow {
     height: winH,
     x: Math.round((screenW - winW) / 2),
     y: screenH - winH - 80,
-    alwaysOnTop: true,
     transparent: true,
     frame: false,
     resizable: false,
-    // 字幕窗使用不同类型，确保Z序在控制窗之下
-    type: 'toolbar',
     skipTaskbar: true,
     webPreferences: {
       preload: getPreloadPath(),
@@ -131,6 +128,9 @@ function createSubtitleWindow(): BrowserWindow {
     },
     show: false,
   });
+
+  // 使用 screen-saver 级别保证字幕在所有窗口之上
+  win.setAlwaysOnTop(true, 'screen-saver');
 
   loadPage(win, 'subtitle');
   // 允许鼠标事件，字幕窗才能被拖动
@@ -428,8 +428,8 @@ export function registerAppLifecycle(): void {
 
     embeddingClient = new EmbeddingClient({
       apiKey: savedConfig.vector?.apiKey || process.env.DEEPSEEK_API_KEY || '',
-      apiEndpoint: savedConfig.vector?.apiEndpoint || 'https://api.deepseek.com',
-      model: savedConfig.vector?.model || 'deepseek-embedding',
+      apiEndpoint: savedConfig.vector?.apiEndpoint || 'https://api.openai.com/v1',
+      model: savedConfig.vector?.model || 'text-embedding-3-small',
     });
     if (savedConfig.stt?.apiKey) process.env.XFYUN_API_KEY = savedConfig.stt.apiKey;
     if (savedConfig.stt?.apiSecret) process.env.XFYUN_API_SECRET = savedConfig.stt.apiSecret;
