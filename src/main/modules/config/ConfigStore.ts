@@ -35,12 +35,19 @@ export class ConfigStore {
     try {
       ensureConfigDir(this.configPath);
       if (!existsSync(this.configPath)) {
-        this.save(DEFAULT_CONFIG);
-        return { ...DEFAULT_CONFIG };
+        // 首次加载：设置默认笔记目录为项目下的 Note/ 文件夹
+        const defaults = deepMerge(DEFAULT_CONFIG as any, { note: { saveDir: join(app.getAppPath(), 'Note') } }) as AppConfig;
+        this.save(defaults);
+        return defaults;
       }
       const raw = readFileSync(this.configPath, 'utf-8');
       const saved = JSON.parse(raw) as Partial<AppConfig>;
-      const merged = deepMerge(DEFAULT_CONFIG, saved);
+      let merged = deepMerge(DEFAULT_CONFIG as any, saved) as AppConfig;
+      // 如果 saveDir 仍为空，补齐默认值
+      if (!merged.note.saveDir) {
+        merged = deepMerge(merged as any, { note: { saveDir: join(app.getAppPath(), 'Note') } }) as AppConfig;
+        this.save(merged);
+      }
       appLogger.info('配置已加载', { path: this.configPath });
       return merged;
     } catch (err) {
@@ -61,9 +68,10 @@ export class ConfigStore {
   }
 }
 
-function deepMerge<T extends Record<string, unknown>>(defaults: T, saved: Partial<T>): T {
+/* eslint-disable @typescript-eslint/no-explicit-any */
+function deepMerge(defaults: any, saved: any): any {
   const result = { ...defaults };
-  for (const key of Object.keys(saved) as Array<keyof T>) {
+  for (const key of Object.keys(saved)) {
     const savedVal = saved[key];
     const defaultVal = defaults[key];
     if (
@@ -75,12 +83,9 @@ function deepMerge<T extends Record<string, unknown>>(defaults: T, saved: Partia
       !Array.isArray(defaultVal) &&
       defaultVal !== null
     ) {
-      result[key] = deepMerge(
-        defaultVal as Record<string, unknown>,
-        savedVal as Record<string, unknown>,
-      ) as T[keyof T];
+      result[key] = deepMerge(defaultVal, savedVal);
     } else if (savedVal !== undefined) {
-      result[key] = savedVal as T[keyof T];
+      result[key] = savedVal;
     }
   }
   return result;
