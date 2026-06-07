@@ -39,6 +39,14 @@ try {
   }
 } catch { appLogger.warn('.env 文件加载失败，将使用系统环境变量'); }
 
+/** 全局未捕获异常兜底，防止进程崩溃 */
+process.on('uncaughtException', (err) => {
+  appLogger.error('未捕获的异常', { error: err.message, stack: err.stack?.substring(0, 500) });
+  try {
+    dialog.showErrorBox('SynchroLens — 发生错误', `${err.message}\n\n详细日志请查看 logs/ 目录`);
+  } catch { /* 忽略 */ }
+});
+
 /** 窗口引用 */
 let mainWindow: BrowserWindow | null = null;
 let subtitleWindow: BrowserWindow | null = null;
@@ -314,28 +322,30 @@ function setupIpcHandlers(): void {
   ipcMain.handle(IPC_CHANNELS.FAVORITE_SEARCH, (_e, payload: { query: string }) => favoriteStore!.search(payload.query));
   ipcMain.handle(IPC_CHANNELS.FAVORITE_EXPORT, (_e, payload: { ids: string[]; savePath: string }) => favoriteStore!.exportToMarkdown(payload.ids, payload.savePath));
   ipcMain.handle(IPC_CHANNELS.IMPROVE_SUBMIT, async (_e, payload: { original: string; improved: string; reason: string; context: string }) => {
-    personalDictStore!.add(
-      { source: payload.original, target: payload.improved, improvement: payload.reason, sourceNote: payload.context || '' },
-    );
-    // 向量化并存储
+    let embedding: number[] | undefined;
     if (embeddingClient) {
       try {
         const combined = `原文: ${payload.original}\n改进译文: ${payload.improved}\n改进建议: ${payload.reason}`;
         const embeddings = await embeddingClient.embedTexts([combined]);
-        if (embeddings.length > 0) {
-          personalDictStore!.add(
-            { source: payload.original, target: payload.improved, improvement: payload.reason, sourceNote: payload.context || '' },
-            embeddings[0],
-          );
-        }
+        if (embeddings.length > 0) embedding = embeddings[0];
       } catch (err) {
         appLogger.warn('改进意见向量化失败', { error: (err as Error).message });
       }
     }
+    personalDictStore!.add(
+      { source: payload.original, target: payload.improved, improvement: payload.reason, sourceNote: payload.context || '' },
+      embedding,
+    );
   });
   ipcMain.handle(IPC_CHANNELS.PERSONAL_DICT_STATUS, () => !!process.env.DEEPSEEK_API_KEY);
-  ipcMain.handle(IPC_CHANNELS.DICTIONARY_ENTRIES_GET, (_e, payload: { dictType: string }) => dictStore!.getEntries(payload.dictType));
-  ipcMain.handle(IPC_CHANNELS.DICTIONARY_ENTRY_REMOVE, (_e, payload: { dictType: string; entryId: string }) => dictStore!.removeEntryById(payload.dictType, payload.entryId));
+  ipcMain.handle(IPC_CHANNELS.DICTIONARY_ENTRIES_GET, (_e, payload: { dictType: string }) => {
+    if (payload.dictType === 'personal') return personalDictStore!.getAll();
+    return dictStore!.getEntries(payload.dictType);
+  });
+  ipcMain.handle(IPC_CHANNELS.DICTIONARY_ENTRY_REMOVE, (_e, payload: { dictType: string; entryId: string }) => {
+    if (payload.dictType === 'personal') return personalDictStore!.remove(payload.entryId);
+    return dictStore!.removeEntryById(payload.dictType, payload.entryId);
+  });
   ipcMain.handle(IPC_CHANNELS.DICTIONARY_FILE_LOAD, (_e, payload: { dictType: string; filePath: string }) => dictStore!.loadFile(payload.dictType, payload.filePath));
   ipcMain.handle(IPC_CHANNELS.DICTIONARY_FILE_REMOVE, (_e, payload: { dictType: string; filePath: string }) => dictStore!.removeFile(payload.dictType, payload.filePath));
   ipcMain.handle(IPC_CHANNELS.DICTIONARY_FILE_TOGGLE, (_e, payload: { dictType: string; filePath: string; enabled: boolean }) => dictStore!.toggleFile(payload.dictType, payload.filePath, payload.enabled));
@@ -424,16 +434,19 @@ export function registerAppLifecycle(): void {
     if (savedConfig.stt?.appId) process.env.XFYUN_APP_ID = savedConfig.stt.appId;
     if (savedConfig.stt?.apiKey) process.env.XFYUN_API_KEY = savedConfig.stt.apiKey;
     if (savedConfig.stt?.apiSecret) process.env.XFYUN_API_SECRET = savedConfig.stt.apiSecret;
-    if (savedConfig.translation?.apiKey) process.env.DEEPSEEK_API_KEY = savedConfig.translation.apiKey;
+    if (savedConfig.stt?.language) sttClient.setLanguage(savedConfig.stt.language);
+    if (savedConfig.translation?.apiKey) {
+      process.env.DEEPSEEK_API_KEY = savedConfig.translation.apiKey;
+      translator.setApiKey(savedConfig.translation.apiKey);
+      if (savedConfig.translation.model) translator.setModel(savedConfig.translation.model);
+      if (savedConfig.translation.targetLanguage) translator.setTargetLanguage(savedConfig.translation.targetLanguage);
+    }
 
     embeddingClient = new EmbeddingClient({
-      apiKey: savedConfig.vector?.apiKey || process.env.DEEPSEEK_API_KEY || '',
-      apiEndpoint: savedConfig.vector?.apiEndpoint || 'https://api.openai.com/v1',
-      model: savedConfig.vector?.model || 'text-embedding-3-small',
+      apiKey: savedConfig.vector?.apiKey || '',
+      apiEndpoint: savedConfig.vector?.apiEndpoint || 'https://ark.cn-beijing.volces.com/api/v3',
+      model: savedConfig.vector?.model || 'doubao-embedding-vision-251215',
     });
-    if (savedConfig.stt?.apiKey) process.env.XFYUN_API_KEY = savedConfig.stt.apiKey;
-    if (savedConfig.stt?.apiSecret) process.env.XFYUN_API_SECRET = savedConfig.stt.apiSecret;
-    if (savedConfig.translation?.apiKey) process.env.DEEPSEEK_API_KEY = savedConfig.translation.apiKey;
     const sessionManager = new SessionManager({
       audioCapture, sttClient, translator: translator as any, noteWriter, correctionDetector
     });
@@ -460,14 +473,6 @@ export function registerAppLifecycle(): void {
     sessionManager.onSessionTranslateFinal((_sessionId, data) => {
       const d = data as { sentenceId: string; original: string; translation: string; corrections: unknown[] };
       sendToAllWindows(IPC_CHANNELS.TRANSLATE_FINAL, data);
-      if (currentSession?.notePath && d.original) {
-        noteWriter.appendEntry(
-          currentSession.notePath,
-          d.original,
-          d.translation,
-          Date.now(),
-        ).catch(err => appLogger.warn('笔记写入失败', { error: (err as Error).message }));
-      }
     });
 
     const registry: ModuleRegistry = {
@@ -487,7 +492,8 @@ export function registerAppLifecycle(): void {
           return currentSession;
         },
         startSession(_sessionId) {
-          if (currentSession) sessionManager.startSession(currentSession);
+          if (currentSession) return sessionManager.startSession(currentSession);
+          return Promise.resolve();
         },
         pauseSession(_sessionId) { sessionManager.pauseSession(); },
         resumeSession(_sessionId) { sessionManager.resumeSession(); },
@@ -511,7 +517,9 @@ export function registerAppLifecycle(): void {
           registry.sessionManager.endSession('');
         } else {
           const sess = registry.sessionManager.createSession({ audioSource: 'system' });
-          registry.sessionManager.startSession(sess.id);
+          registry.sessionManager.startSession(sess.id).catch((err: Error) =>
+            appLogger.error('快捷键启动会话失败', { error: err.message })
+          );
         }
       } catch (err) {
         appLogger.error('快捷键回调异常', { error: (err as Error).message });

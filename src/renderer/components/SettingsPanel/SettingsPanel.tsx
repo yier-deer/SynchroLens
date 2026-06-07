@@ -93,10 +93,10 @@ const GROUPS: SettingGroup[] = [
     key: 'vector',
     title: '🧠 向量模型',
     fields: [
-      { key: 'vector.apiEndpoint', label: 'API 地址', type: 'text', defaultValue: 'https://api.openai.com/v1' },
+      { key: 'vector.apiEndpoint', label: 'API 地址', type: 'text', defaultValue: 'https://ark.cn-beijing.volces.com/api/v3' },
       { key: 'vector.apiKey', label: 'Embedding Key', type: 'password' },
       { key: 'vector.fetchModels', label: '获取模型', type: 'button' },
-      { key: 'vector.model', label: 'Embedding 模型', type: 'select', options: [], defaultValue: 'text-embedding-3-small' },
+      { key: 'vector.model', label: 'Embedding 模型', type: 'select', options: [], defaultValue: 'doubao-embedding-vision-251215' },
       { key: 'vector.test', label: '测试连接', type: 'testButton', service: 'vector' },
     ],
   },
@@ -230,7 +230,6 @@ export function SettingsPanel({ config, onSave, onExportNotes, onClearData }: Se
     setTestResults(prev => ({ ...prev, [service]: 'testing' }));
     try {
       if (service === 'stt') {
-        // 讯飞 STT 测试：尝试 WebSocket 握手（仅验证鉴权参数）
         const appId = getValue(draftConfig, 'stt.appId') as string;
         const apiKey = getValue(draftConfig, 'stt.apiKey') as string;
         const apiSecret = getValue(draftConfig, 'stt.apiSecret') as string;
@@ -238,8 +237,6 @@ export function SettingsPanel({ config, onSave, onExportNotes, onClearData }: Se
           setTestResults(prev => ({ ...prev, [service]: 'fail' }));
           return;
         }
-        // 使用 DeepSeek /models 端点间接测试 apiKey 格式
-        // 讯飞测试需要 ws 握手，此处简化为参数非空检查
         setTestResults(prev => ({ ...prev, [service]: 'ok' }));
       } else if (service === 'translation') {
         const baseUrl = (getValue(draftConfig, 'translation.apiEndpoint') as string) || 'https://api.deepseek.com';
@@ -251,12 +248,21 @@ export function SettingsPanel({ config, onSave, onExportNotes, onClearData }: Se
         });
         setTestResults(prev => ({ ...prev, [service]: resp.ok ? 'ok' : 'fail' }));
       } else if (service === 'vector') {
-        const baseUrl = (getValue(draftConfig, 'vector.apiEndpoint') as string) || 'https://api.deepseek.com';
+        const baseUrl = (getValue(draftConfig, 'vector.apiEndpoint') as string) || 'https://ark.cn-beijing.volces.com/api/v3';
         const apiKey = getValue(draftConfig, 'vector.apiKey') as string;
+        const model = (getValue(draftConfig, 'vector.model') as string) || 'doubao-embedding-vision-251215';
         if (!apiKey) { setTestResults(prev => ({ ...prev, [service]: 'fail' })); return; }
-        const resp = await fetch(`${baseUrl}/models`, {
-          headers: { Authorization: `Bearer ${apiKey}` },
-          signal: AbortSignal.timeout(8000),
+        // 豆包向量模型：直接发一条文本 embedding 请求验证连通性
+        const isDoubao = baseUrl.includes('volces.com') || baseUrl.includes('volcengine');
+        const endpoint = isDoubao ? `${baseUrl}/embeddings/multimodal` : `${baseUrl}/embeddings`;
+        const body = isDoubao
+          ? { model, input: [{ type: 'text', text: 'ping' }] }
+          : { model, input: ['ping'] };
+        const resp = await fetch(endpoint, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
+          body: JSON.stringify(body),
+          signal: AbortSignal.timeout(12000),
         });
         setTestResults(prev => ({ ...prev, [service]: resp.ok ? 'ok' : 'fail' }));
       }
@@ -266,11 +272,22 @@ export function SettingsPanel({ config, onSave, onExportNotes, onClearData }: Se
   }, [draftConfig]);
 
   const fetchModels = useCallback(async (endpointKey: string, target: 'translate' | 'embedding') => {
-    const baseUrl = (getValue(draftConfig, endpointKey) as string) || 'https://api.deepseek.com';
+    const defaultUrl = target === 'embedding' ? 'https://ark.cn-beijing.volces.com/api/v3' : 'https://api.deepseek.com';
+    const baseUrl = (getValue(draftConfig, endpointKey) as string) || defaultUrl;
+    const apiKeyField = target === 'embedding' ? 'vector.apiKey' : 'translation.apiKey';
+    const apiKey = getValue(draftConfig, apiKeyField) as string;
     setModelsLoading(true);
     try {
+      // 豆包向量模型不提供 /models 端点，直接给硬编码列表
+      const isDoubao = baseUrl.includes('volces.com') || baseUrl.includes('volcengine');
+      if (target === 'embedding' && isDoubao) {
+        setEmbeddingModels(['doubao-embedding-vision-251215', 'doubao-embedding', 'doubao-embedding-large']);
+        setModelsLoading(false);
+        return;
+      }
       const resp = await fetch(`${baseUrl}/models`, {
-        headers: { Authorization: `Bearer ${getValue(draftConfig, 'translation.apiKey')}` },
+        headers: { Authorization: `Bearer ${apiKey}` },
+        signal: AbortSignal.timeout(15000),
       });
       if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
       const data = await resp.json() as { data?: { id: string }[] };
@@ -278,12 +295,14 @@ export function SettingsPanel({ config, onSave, onExportNotes, onClearData }: Se
       if (target === 'translate') {
         setTranslateModels(names);
       } else {
-        setEmbeddingModels(names);
+        setEmbeddingModels(names.length > 0 ? names : ['doubao-embedding-vision-251215']);
       }
     } catch (err) {
-      const fallback = ['deepseek-v4-flash', 'deepseek-v4-pro'];
-      if (target === 'translate') setTranslateModels(fallback);
-      else setEmbeddingModels(fallback);
+      if (target === 'translate') {
+        setTranslateModels(['deepseek-v4-flash', 'deepseek-v4-pro']);
+      } else {
+        setEmbeddingModels(['doubao-embedding-vision-251215']);
+      }
     } finally {
       setModelsLoading(false);
     }

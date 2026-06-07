@@ -1,6 +1,6 @@
 /**
- * DeepSeek Embedding API 客户端
- * 负责调用 DeepSeek Embeddings API 进行文本向量化
+ * Embedding 向量化客户端
+ * 支持豆包（火山引擎）多模态 Embedding API，兼容其他 OpenAI 格式提供方
  */
 
 import { createLogger } from '../../utils/logger';
@@ -19,8 +19,8 @@ export class EmbeddingClient {
 
   constructor(config: EmbeddingConfig) {
     this.apiKey = config.apiKey;
-    this.baseUrl = config.apiEndpoint || 'https://api.deepseek.com';
-    this.model = config.model || 'deepseek-embedding';
+    this.baseUrl = config.apiEndpoint || 'https://ark.cn-beijing.volces.com/api/v3';
+    this.model = config.model || 'doubao-embedding-vision-251215';
   }
 
   setApiKey(key: string): void { this.apiKey = key; }
@@ -28,25 +28,42 @@ export class EmbeddingClient {
   setApiEndpoint(endpoint: string): void { this.baseUrl = endpoint; }
   get hasApiKey(): boolean { return !!this.apiKey; }
 
+  /** 检测是否是豆包/火山引擎端点 */
+  private get isDoubao(): boolean {
+    return this.baseUrl.includes('volces.com') || this.baseUrl.includes('volcengine');
+  }
+
   /** 批量文本向量化 */
   async embedTexts(texts: string[]): Promise<number[][]> {
     if (texts.length === 0) return [];
-    this.l.info('开始向量化', { count: texts.length });
+    this.l.info('开始向量化', { count: texts.length, model: this.model, provider: this.isDoubao ? 'doubao' : 'openai' });
+
+    const endpointPath = this.isDoubao ? '/embeddings/multimodal' : '/embeddings';
+    const requestBody = this.isDoubao
+      ? { model: this.model, input: texts.map(t => ({ type: 'text' as const, text: t })) }
+      : { model: this.model, input: texts };
+
     try {
-      const response = await fetch(`${this.baseUrl}/embeddings`, {
+      const response = await fetch(`${this.baseUrl}${endpointPath}`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           Authorization: `Bearer ${this.apiKey}`,
         },
-        body: JSON.stringify({ model: this.model, input: texts }),
-        signal: AbortSignal.timeout(15000),
+        body: JSON.stringify(requestBody),
+        signal: AbortSignal.timeout(30000),
       });
       if (!response.ok) {
         const eb = await response.text().catch(() => '');
-        throw new Error(`Embedding API 错误: ${response.status} — ${eb}`);
+        this.l.error('Embedding API 请求失败', { status: response.status, body: eb.substring(0, 200) });
+        throw new Error(`Embedding API 错误: ${response.status} — ${eb.substring(0, 100)}`);
       }
       const data = await response.json() as { data: Array<{ index: number; embedding: number[] }> };
+      if (!data.data || !Array.isArray(data.data)) {
+        this.l.error('Embedding API 返回格式异常', { response: JSON.stringify(data).substring(0, 200) });
+        throw new Error('Embedding API 返回格式异常');
+      }
+      this.l.info('向量化完成', { count: data.data.length });
       return data.data.sort((a, b) => a.index - b.index).map((item) => item.embedding);
     } catch (err) {
       this.l.error('向量化失败', { error: (err as Error).message });

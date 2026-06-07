@@ -57,11 +57,11 @@ export function useSession(deps: UseSessionDeps) {
 
     subs.push(
       ipc.on(IPC_CHANNELS.TRANSLATE_PARTIAL, (data) => {
-        const payload = data as { sentenceId: string; translation: string };
+        const payload = data as { sentenceId: string; translation: string; original?: string };
         if (payload?.sentenceId && typeof payload?.translation === 'string') {
           setCurrentTranslation({
             sentenceId: payload.sentenceId,
-            original: '',
+            original: payload.original || '',
             translation: payload.translation,
             isFinal: false,
             corrections: [],

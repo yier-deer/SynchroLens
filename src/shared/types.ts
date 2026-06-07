@@ -437,8 +437,8 @@ export const DEFAULT_CONFIG: AppConfig = {
     model: 'deepseek-v4-flash',
   },
   vector: {
-    apiEndpoint: 'https://api.openai.com/v1',
-    model: 'text-embedding-3-small',
+    apiEndpoint: 'https://ark.cn-beijing.volces.com/api/v3',
+    model: 'doubao-embedding-vision-251215',
   },
   note: {
     saveDir: '',

@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { FileText, Star, BookOpen, Settings, Radio, ChevronRight, ChevronDown, Folder, File } from 'lucide-react';
+import { FileText, Star, BookOpen, Settings, Radio, ChevronRight, ChevronDown, Folder, File, RefreshCw } from 'lucide-react';
 import type { NoteTreeItem } from '@shared/types';
 
 export type ViewType = 'notes' | 'favorites' | 'dictionary' | 'settings';
@@ -11,22 +11,28 @@ interface SidebarProps {
   isRecording: boolean;
   onPrepareRecord: () => void;
   lastViewedNotePath?: string | null;
+  /** 每次递增触发重新加载笔记树 */
+  refreshNotes?: number;
 }
 
-export function Sidebar({ activeView, onViewChange, onNoteSelect, isRecording, onPrepareRecord, lastViewedNotePath }: SidebarProps): JSX.Element {
+export function Sidebar({ activeView, onViewChange, onNoteSelect, isRecording, onPrepareRecord, lastViewedNotePath, refreshNotes }: SidebarProps): JSX.Element {
   const [noteTree, setNoteTree] = useState<NoteTreeItem[]>([]);
   const [expandedDirs, setExpandedDirs] = useState<Set<string>>(new Set());
+  const [refreshing, setRefreshing] = useState(false);
 
   useEffect(() => {
     loadNotes();
-  }, []);
+  }, [refreshNotes]);
 
   const loadNotes = async () => {
+    setRefreshing(true);
     try {
       const tree = await window.synchrolens.listNotes();
       setNoteTree(tree as NoteTreeItem[]);
     } catch {
       setNoteTree([]);
+    } finally {
+      setRefreshing(false);
     }
   };
 
@@ -107,9 +113,18 @@ export function Sidebar({ activeView, onViewChange, onNoteSelect, isRecording, o
       </div>
 
       <div className="flex-1 overflow-y-auto p-3">
-        <h3 className="text-[10px] font-semibold text-surface-500 uppercase tracking-wider mb-2 px-3">
-          历史笔记
-        </h3>
+        <div className="flex items-center justify-between px-3 mb-2">
+          <h3 className="text-[10px] font-semibold text-surface-500 uppercase tracking-wider">
+            历史笔记
+          </h3>
+          <button
+            onClick={loadNotes}
+            className="p-1 rounded-md text-surface-500 hover:text-surface-300 hover:bg-surface-700/50 transition-colors"
+            title="刷新笔记列表"
+          >
+            <RefreshCw className={`w-3.5 h-3.5 ${refreshing ? 'animate-spin' : ''}`} />
+          </button>
+        </div>
         <div className="space-y-0.5">
           {noteTree.map(item => (
             <TreeNode
