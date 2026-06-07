@@ -5,16 +5,28 @@ import { ControlBar } from '../../components/ControlBar/ControlBar';
 
 export function ControlWindow() {
   const [subtitleVisible, setSubtitleVisible] = useState(true);
+  const [isToggling, setIsToggling] = useState(false);
   const ipc = useIPC();
   const session = useSession({ ipc });
 
-  const handleToggleRecording = useCallback(() => {
-    if (session.sessionState === 'running') {
-      session.stopSession();
-    } else {
-      session.startSession('system');
+  const handleToggleRecording = useCallback(async () => {
+    if (isToggling) return;
+    setIsToggling(true);
+    try {
+      if (session.sessionState === 'running') {
+        await session.stopSession();
+      } else {
+        await session.startSession('system');
+      }
+    } catch (err) {
+      window.synchrolens?.log?.('error', 'ControlWindow', '会话切换失败', {
+        action: session.sessionState === 'running' ? 'stop' : 'start',
+        error: (err as Error).message,
+      });
+    } finally {
+      setIsToggling(false);
     }
-  }, [session]);
+  }, [session, isToggling]);
 
   const handleToggleSubtitle = useCallback(() => {
     const newVisible = !subtitleVisible;

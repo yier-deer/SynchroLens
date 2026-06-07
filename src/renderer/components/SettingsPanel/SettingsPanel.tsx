@@ -93,10 +93,10 @@ const GROUPS: SettingGroup[] = [
     key: 'vector',
     title: '🧠 向量模型',
     fields: [
-      { key: 'translation.apiEndpoint', label: 'API 地址', type: 'text', defaultValue: 'https://api.deepseek.com' },
-      { key: 'translation.apiKey', label: 'Embedding Key', type: 'password' },
-      { key: 'translation.fetchEmbeddingModels', label: '获取模型', type: 'button' },
-      { key: 'translation.embeddingModel', label: 'Embedding 模型', type: 'select', options: [], defaultValue: 'deepseek-v4-flash' },
+      { key: 'vector.apiEndpoint', label: 'API 地址', type: 'text', defaultValue: 'https://api.openai.com/v1' },
+      { key: 'vector.apiKey', label: 'Embedding Key', type: 'password' },
+      { key: 'vector.fetchModels', label: '获取模型', type: 'button' },
+      { key: 'vector.model', label: 'Embedding 模型', type: 'select', options: [], defaultValue: 'text-embedding-3-small' },
       { key: 'vector.test', label: '测试连接', type: 'testButton', service: 'vector' },
     ],
   },
@@ -350,7 +350,7 @@ export function SettingsPanel({ config, onSave, onExportNotes, onClearData }: Se
     if (field.type === 'select') {
       const rawVal = getValue(draftConfig, field.key);
       const displayVal = field.key === 'stt.language' ? fromXFyunLang(String(rawVal ?? '中文')) : String(rawVal ?? field.options?.[0] ?? '');
-      const modelOpts = field.key === 'translation.model' ? translateModels : (field.key === 'translation.embeddingModel' ? embeddingModels : (field.options || []));
+      const modelOpts = field.key === 'translation.model' ? translateModels : (field.key === 'vector.model' ? embeddingModels : (field.options || []));
       const renderOpts = modelOpts.length > 0 ? modelOpts : (field.defaultValue ? [field.defaultValue] : []);
       return (
         <select
@@ -376,10 +376,10 @@ export function SettingsPanel({ config, onSave, onExportNotes, onClearData }: Se
             if (field.key === 'export') onExportNotes?.();
             else if (field.key === 'clear') onClearData?.();
             else if (field.key === 'translation.fetchModels') fetchModels('translation.apiEndpoint', 'translate');
-            else if (field.key === 'translation.fetchEmbeddingModels') fetchModels('translation.apiEndpoint', 'embedding');
+            else if (field.key === 'vector.fetchModels') fetchModels('vector.apiEndpoint', 'embedding');
           }}
         >
-          {modelsLoading && (field.key === 'translation.fetchModels' || field.key === 'translation.fetchEmbeddingModels') ? '加载中…' : field.label}
+          {modelsLoading && (field.key === 'translation.fetchModels' || field.key === 'vector.fetchModels') ? '加载中…' : field.label}
         </button>
       );
     }

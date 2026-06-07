@@ -177,12 +177,26 @@ export class SessionManager {
 
   /** 结束会话 */
   async endSession(): Promise<void> {
-    if (!this.activeSession) return;
+    if (!this.activeSession) {
+      this.l.warn('endSession 被调用但没有活跃会话');
+      return;
+    }
 
-    this.l.info('会话已结束', { id: this.activeSession.session.id });
+    this.l.info('会话结束中', { id: this.activeSession.session.id });
 
-    this.deps.audioCapture.stop();
-    this.deps.sttClient.disconnect();
+    try {
+      this.deps.audioCapture.stop();
+      this.l.debug('音频已停止');
+    } catch (err) {
+      this.l.error('停止音频采集失败', { error: (err as Error).message });
+    }
+
+    try {
+      this.deps.sttClient.disconnect();
+      this.l.debug('STT 已断开');
+    } catch (err) {
+      this.l.error('断开 STT 失败', { error: (err as Error).message });
+    }
 
     if (this.activeSession.unsubscribeAudio) {
       this.activeSession.unsubscribeAudio();
@@ -194,6 +208,7 @@ export class SessionManager {
       cb(this.activeSession.session.id, 'stopped');
     }
 
+    this.l.info('会话已结束', { id: this.activeSession.session.id, sentenceCount: this.sentenceCount });
     this.activeSession = null;
     this.sentenceCount = 0;
   }
