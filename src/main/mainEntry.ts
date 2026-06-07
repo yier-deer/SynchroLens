@@ -131,8 +131,8 @@ function createSubtitleWindow(): BrowserWindow {
   });
 
   loadPage(win, 'subtitle');
-  // 字幕窗允许鼠标穿透，右键拖动需要时取消 ignore 即可
-  win.setIgnoreMouseEvents(true, { forward: true });
+  // 允许鼠标事件，字幕窗才能被拖动
+  // win.setIgnoreMouseEvents(true, { forward: true }); // REMOVED: blocks dragging
 
   win.on('closed', () => {
     subtitleWindow = null;
