@@ -10,9 +10,11 @@ interface NotesViewProps {
   onClearSelection: () => void;
   /** 摘要提取回调（来自 HTML 注释标记） */
   onSummaryExtracted?: (summary: string) => void;
+  /** 快速开始回调 */
+  onQuickStart?: () => void;
 }
 
-export function NotesView({ selectedNote, onClearSelection, onSummaryExtracted }: NotesViewProps): JSX.Element {
+export function NotesView({ selectedNote, onClearSelection, onSummaryExtracted, onQuickStart }: NotesViewProps): JSX.Element {
   const [sessionState, setSessionState] = useState<'idle' | 'running' | 'stopped'>('idle');
   const [sentences, setSentences] = useState<TranslationResult[]>([]);
   const [currentSentence, setCurrentSentence] = useState<TranslationResult | null>(null);
@@ -126,6 +128,16 @@ export function NotesView({ selectedNote, onClearSelection, onSummaryExtracted }
   }, [selectedText]);
 
   const handleSubmitImprove = useCallback(async () => {
+    // 检查向量模型是否配置
+    try {
+      const isEnabled = await window.synchrolens.isPersonalDictEnabled();
+      if (!isEnabled) {
+        window.alert('向量模型密钥未配置，请先在「设置」→「向量模型」中配置 Embedding Key，以便改进翻译能被向量化存储。');
+        return;
+      }
+    } catch {
+      // 检测失败不阻断流程
+    }
     await window.synchrolens.submitImprovement(
       improveData.original,
       improveData.improved,
@@ -225,7 +237,7 @@ export function NotesView({ selectedNote, onClearSelection, onSummaryExtracted }
             <p className="text-sm text-surface-500 mb-6 max-w-xs">
               点击左侧「准备录制」按钮，启动同声传译功能
             </p>
-            <button className="btn-primary text-sm">快速开始</button>
+            <button className="btn-primary text-sm" onClick={onQuickStart}>快速开始</button>
           </div>
         ) : (
           <>

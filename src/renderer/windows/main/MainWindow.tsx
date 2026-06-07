@@ -36,17 +36,6 @@ function SettingsWithActions({ config, onSave }: { config: AppConfig; onSave: (c
     setShowExportConfirm(false);
   }, []);
 
-  const handleClearData = useCallback(async () => {
-    const confirmed = window.confirm('确定要清除所有历史数据吗？此操作不可撤销。');
-    if (!confirmed) return;
-    try {
-      await window.synchrolens.clearData(['notes', 'favorites', 'personalDict']);
-      showToast('历史数据已清除');
-    } catch {
-      showToast('清除失败', 'error');
-    }
-  }, [showToast]);
-
   const handleSaveSettings = useCallback((newConfig: AppConfig) => {
     onSave(newConfig);
     showToast('设置已保存');
@@ -78,6 +67,27 @@ function SettingsWithActions({ config, onSave }: { config: AppConfig; onSave: (c
       )}
     </>
   );
+}
+
+/** 检查录制所需的密钥是否配置 */
+function checkRecordingKeys(config: AppConfig): string | null {
+  const missing: string[] = [];
+  if (!config.stt?.appId) missing.push('讯飞 AppID');
+  if (!config.stt?.apiKey) missing.push('讯飞 API Key');
+  if (!config.stt?.apiSecret) missing.push('讯飞 API Secret');
+  if (!config.translation?.apiKey) missing.push('DeepSeek API Key');
+  if (missing.length > 0) {
+    return `以下密钥未配置，请先在「设置」中填写：\n\n${missing.map(m => `• ${m}`).join('\n')}`;
+  }
+  return null;
+}
+
+/** 检查向量模型是否配置 */
+function checkVectorModel(config: AppConfig): string | null {
+  if (!config.vector?.apiKey && !config.translation?.apiKey) {
+    return '向量模型密钥未配置，请先在「设置」中配置 Embedding Key。';
+  }
+  return null;
 }
 
 export function MainWindow() {
@@ -134,8 +144,22 @@ export function MainWindow() {
   }, []);
 
   const handlePrepareRecord = useCallback(() => {
+    const keyError = checkRecordingKeys(config);
+    if (keyError) {
+      window.alert(keyError);
+      return;
+    }
     window.synchrolens.prepareRecord().catch(() => {});
-  }, []);
+  }, [config]);
+
+  const handleQuickStart = useCallback(() => {
+    const keyError = checkRecordingKeys(config);
+    if (keyError) {
+      window.alert(keyError);
+      return;
+    }
+    window.synchrolens.prepareRecord().catch(() => {});
+  }, [config]);
 
   const handleConfigSave = useCallback(async (newConfig: AppConfig) => {
     setConfig(newConfig);
@@ -172,6 +196,7 @@ export function MainWindow() {
               selectedNote={selectedNote}
               onClearSelection={handleClearSelection}
               onSummaryExtracted={setNoteSummary}
+              onQuickStart={handleQuickStart}
             />
           )}
           {activeView === 'favorites' && <FavoritesView cardStyle={config.general?.cardStyle || '暗夜蓝'} onNavigateToNote={(notePath) => {
