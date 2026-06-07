@@ -25,7 +25,7 @@ export interface SynchroLensAPI {
   updateConfig(config: Record<string, unknown>): Promise<void>;
   triggerSummary(): Promise<void>;
   prepareRecord(): Promise<void>;
-  exitControl(action: 'minimize' | 'stop' | 'cancel'): Promise<void>;
+  exitControl(action: 'minimize' | 'stop' | 'cancel' | 'prompt'): Promise<void>;
   toggleSubtitle(visible: boolean): Promise<void>;
   addFavorite(text: string, noteFileName: string, noteFilePath: string): Promise<void>;
   removeFavorite(id: string): Promise<void>;
@@ -106,6 +106,7 @@ function buildAPI(): SynchroLensAPI {
     readNote(filePath) { return ipcRenderer.invoke(IPC_CHANNELS.NOTES_READ, { filePath }); },
     exportAllNotes(savePath) { return ipcRenderer.invoke(IPC_CHANNELS.NOTES_EXPORT_ALL, { savePath }); },
     selectDirectory() { return ipcRenderer.invoke(IPC_CHANNELS.SELECT_DIRECTORY); },
+    selectFile(filters?) { return ipcRenderer.invoke('dialog:select-file', { filters }); },
 
     clearData(types) { return ipcRenderer.invoke(IPC_CHANNELS.DATA_CLEAR, { types }); },
 
