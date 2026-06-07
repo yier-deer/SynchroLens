@@ -11,15 +11,17 @@ interface SidebarProps {
   isRecording: boolean;
   onPrepareRecord: () => void;
   lastViewedNotePath?: string | null;
+  /** 每次递增触发重新加载笔记树 */
+  refreshNotes?: number;
 }
 
-export function Sidebar({ activeView, onViewChange, onNoteSelect, isRecording, onPrepareRecord, lastViewedNotePath }: SidebarProps): JSX.Element {
+export function Sidebar({ activeView, onViewChange, onNoteSelect, isRecording, onPrepareRecord, lastViewedNotePath, refreshNotes }: SidebarProps): JSX.Element {
   const [noteTree, setNoteTree] = useState<NoteTreeItem[]>([]);
   const [expandedDirs, setExpandedDirs] = useState<Set<string>>(new Set());
 
   useEffect(() => {
     loadNotes();
-  }, []);
+  }, [refreshNotes]);
 
   const loadNotes = async () => {
     try {

@@ -322,28 +322,30 @@ function setupIpcHandlers(): void {
   ipcMain.handle(IPC_CHANNELS.FAVORITE_SEARCH, (_e, payload: { query: string }) => favoriteStore!.search(payload.query));
   ipcMain.handle(IPC_CHANNELS.FAVORITE_EXPORT, (_e, payload: { ids: string[]; savePath: string }) => favoriteStore!.exportToMarkdown(payload.ids, payload.savePath));
   ipcMain.handle(IPC_CHANNELS.IMPROVE_SUBMIT, async (_e, payload: { original: string; improved: string; reason: string; context: string }) => {
-    personalDictStore!.add(
-      { source: payload.original, target: payload.improved, improvement: payload.reason, sourceNote: payload.context || '' },
-    );
-    // 向量化并存储
+    let embedding: number[] | undefined;
     if (embeddingClient) {
       try {
         const combined = `原文: ${payload.original}\n改进译文: ${payload.improved}\n改进建议: ${payload.reason}`;
         const embeddings = await embeddingClient.embedTexts([combined]);
-        if (embeddings.length > 0) {
-          personalDictStore!.add(
-            { source: payload.original, target: payload.improved, improvement: payload.reason, sourceNote: payload.context || '' },
-            embeddings[0],
-          );
-        }
+        if (embeddings.length > 0) embedding = embeddings[0];
       } catch (err) {
         appLogger.warn('改进意见向量化失败', { error: (err as Error).message });
       }
     }
+    personalDictStore!.add(
+      { source: payload.original, target: payload.improved, improvement: payload.reason, sourceNote: payload.context || '' },
+      embedding,
+    );
   });
   ipcMain.handle(IPC_CHANNELS.PERSONAL_DICT_STATUS, () => !!process.env.DEEPSEEK_API_KEY);
-  ipcMain.handle(IPC_CHANNELS.DICTIONARY_ENTRIES_GET, (_e, payload: { dictType: string }) => dictStore!.getEntries(payload.dictType));
-  ipcMain.handle(IPC_CHANNELS.DICTIONARY_ENTRY_REMOVE, (_e, payload: { dictType: string; entryId: string }) => dictStore!.removeEntryById(payload.dictType, payload.entryId));
+  ipcMain.handle(IPC_CHANNELS.DICTIONARY_ENTRIES_GET, (_e, payload: { dictType: string }) => {
+    if (payload.dictType === 'personal') return personalDictStore!.getAll();
+    return dictStore!.getEntries(payload.dictType);
+  });
+  ipcMain.handle(IPC_CHANNELS.DICTIONARY_ENTRY_REMOVE, (_e, payload: { dictType: string; entryId: string }) => {
+    if (payload.dictType === 'personal') return personalDictStore!.remove(payload.entryId);
+    return dictStore!.removeEntryById(payload.dictType, payload.entryId);
+  });
   ipcMain.handle(IPC_CHANNELS.DICTIONARY_FILE_LOAD, (_e, payload: { dictType: string; filePath: string }) => dictStore!.loadFile(payload.dictType, payload.filePath));
   ipcMain.handle(IPC_CHANNELS.DICTIONARY_FILE_REMOVE, (_e, payload: { dictType: string; filePath: string }) => dictStore!.removeFile(payload.dictType, payload.filePath));
   ipcMain.handle(IPC_CHANNELS.DICTIONARY_FILE_TOGGLE, (_e, payload: { dictType: string; filePath: string; enabled: boolean }) => dictStore!.toggleFile(payload.dictType, payload.filePath, payload.enabled));

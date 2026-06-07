@@ -98,6 +98,7 @@ export function MainWindow() {
   const [noteSummary, setNoteSummary] = useState('');
   const [summaryVisible, setSummaryVisible] = useState(true);
   const [config, setConfig] = useState<AppConfig>({ ...DEFAULT_CONFIG });
+  const [notesRefreshKey, setNotesRefreshKey] = useState(0);
   const ipc = useIPC();
   const session = useSession({ ipc });
 
@@ -132,11 +133,11 @@ export function MainWindow() {
   useEffect(() => {
     if (session.sessionState === 'stopped' && session.notePath) {
       setLastNotePath(session.notePath);
-      // 延迟给文件系统写入时间
+      setNotesRefreshKey(k => k + 1);
       setTimeout(() => {
         setSelectedNote({ name: '', path: session.notePath || '', type: 'file' });
         setActiveView('notes');
-      }, 500);
+      }, 800);
     }
   }, [session.sessionState, session.notePath]);
 
@@ -199,6 +200,7 @@ export function MainWindow() {
             isRecording={isRecording}
             onPrepareRecord={handlePrepareRecord}
             lastViewedNotePath={lastNotePath}
+            refreshNotes={notesRefreshKey}
           />
         </div>
 
