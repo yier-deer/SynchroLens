@@ -300,7 +300,7 @@ function setupIpcHandlers(): void {
       { source: payload.original, target: payload.improved, improvement: payload.reason, sourceNote: payload.context || '' },
     );
     // 向量化并存储
-    if (embeddingClient?.hasApiKey) {
+    if ((embeddingClient as any)?.apiKey) {
       try {
         const combined = `原文: ${payload.original}\n改进译文: ${payload.improved}\n改进建议: ${payload.reason}`;
         const embeddings = await embeddingClient.embedTexts([combined]);
