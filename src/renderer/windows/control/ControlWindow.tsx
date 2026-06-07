@@ -11,7 +11,7 @@ export function ControlWindow() {
 
   const handleToggleRecording = useCallback(() => {
     if (session.sessionState === 'running') {
-      session.stopSession();
+      setShowExitDialog(true);
     } else {
       session.startSession('system');
     }
