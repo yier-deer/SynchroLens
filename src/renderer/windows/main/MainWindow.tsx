@@ -100,6 +100,21 @@ export function MainWindow() {
     }).catch(() => {});
   }, []);
 
+  // 主题切换
+  useEffect(() => {
+    const theme = config.general?.theme || 'system';
+    if (theme === 'system') {
+      const mq = window.matchMedia('(prefers-color-scheme: dark)');
+      const applySystem = (e: MediaQueryListEvent | MediaQueryList) => {
+        document.documentElement.setAttribute('data-theme', e.matches ? 'dark' : 'light');
+      };
+      applySystem(mq);
+      mq.addEventListener('change', applySystem);
+      return () => mq.removeEventListener('change', applySystem);
+    }
+    document.documentElement.setAttribute('data-theme', theme);
+  }, [config.general?.theme]);
+
   const isRecording = session.sessionState === 'running';
   const isNotes = activeView === 'notes';
 

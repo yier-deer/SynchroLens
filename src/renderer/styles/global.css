@@ -2,6 +2,26 @@
 @tailwind components;
 @tailwind utilities;
 
+/* 主题 CSS 变量 */
+:root {
+  --bg-primary: #0a0f1a;
+  --bg-secondary: #111827;
+  --text-primary: #e5e7eb;
+  --text-secondary: #9ca3af;
+  --text-muted: #6b7280;
+  --border-color: rgba(55, 65, 81, 0.5);
+  --card-bg: rgba(31, 41, 55, 0.6);
+}
+:root[data-theme="light"] {
+  --bg-primary: #f9fafb;
+  --bg-secondary: #f3f4f6;
+  --text-primary: #111827;
+  --text-secondary: #4b5563;
+  --text-muted: #9ca3af;
+  --border-color: rgba(209, 213, 219, 0.7);
+  --card-bg: rgba(255, 255, 255, 0.8);
+}
+
 @layer base {
   * {
     @apply border-surface-200/50;
