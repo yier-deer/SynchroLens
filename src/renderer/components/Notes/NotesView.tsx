@@ -72,18 +72,25 @@ export function NotesView({ selectedNote, onClearSelection }: NotesViewProps): J
   const handleTextSelection = useCallback(() => {
     const selection = window.getSelection();
     const text = selection?.toString().trim() || '';
-    if (text) {
-      setSelectedText(text);
-    }
+    setSelectedText(text || '');
+  }, []);
+
+  // 全局点击关闭右键菜单
+  useEffect(() => {
+    const closeMenu = () => { setShowContextMenu(false); setSelectedText(''); };
+    document.addEventListener('click', closeMenu);
+    return () => document.removeEventListener('click', closeMenu);
   }, []);
 
   const handleContextMenu = useCallback((e: React.MouseEvent) => {
-    e.preventDefault();
-    if (selectedText) {
+    // 仅在笔记阅读区域（selectedNote非空）显示完整右键菜单
+    if (selectedNote && selectedText) {
+      e.preventDefault();
       setContextMenuPos({ x: e.clientX, y: e.clientY });
       setShowContextMenu(true);
     }
-  }, [selectedText]);
+    // 非笔记阅读区域：保留浏览器默认右键（仅复制）
+  }, [selectedText, selectedNote]);
 
   const handleCopy = useCallback(() => {
     navigator.clipboard.writeText(selectedText);
