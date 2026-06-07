@@ -1,5 +1,6 @@
 import { spawn, execSync } from 'child_process';
 import { EventEmitter } from 'events';
+import { existsSync } from 'fs';
 import { createLogger } from '../../utils/logger';
 
 type AudioDataCallback = (pcmBuffer: Int16Array) => void;
@@ -11,20 +12,35 @@ const EVENTS = {
   STOP: 'stop',
 } as const;
 
-/** 检查 ffmpeg 是否可用 */
-function isFfmpegAvailable(): boolean {
+/** 多路径查找 ffmpeg 可执行文件 */
+function findFfmpeg(): string | null {
+  const candidates = [
+    'ffmpeg',
+    'E:\\ffmpeg\\ffmpeg-8.1.1-essentials_build\\bin\\ffmpeg.exe',
+    'E:\\ffmpeg\\ffmpeg-master-latest-win64-gpl\\bin\\ffmpeg.exe',
+    'C:\\ffmpeg\\bin\\ffmpeg.exe',
+  ];
+  for (const c of candidates) {
+    try {
+      if (existsSync(c)) {
+        execSync(`"${c}" -version`, { stdio: 'ignore' });
+        return c;
+      }
+    } catch { /* 下一个 */ }
+  }
+  // 最后尝试纯命令名
   try {
     execSync('ffmpeg -version', { stdio: 'ignore' });
-    return true;
+    return 'ffmpeg';
   } catch {
-    return false;
+    return null;
   }
 }
 
 /** 获取 Windows dshow 音频设备列表 */
-function getDshowDevices(): string[] {
+function getDshowDevices(ffmpegPath: string): string[] {
   try {
-    const output = execSync('ffmpeg -list_devices true -f dshow -i dummy', {
+    const output = execSync(`"${ffmpegPath}" -list_devices true -f dshow -i dummy`, {
       stdio: 'pipe',
       timeout: 5000,
     }).toString();
@@ -32,13 +48,24 @@ function getDshowDevices(): string[] {
     const match = output.match(/"([^"]+)"/g);
     if (match) {
       for (const m of match) {
-        devices.push(m.replace(/"/g, ''));
+        const name = m.replace(/"/g, '');
+        if (devices.indexOf(name) === -1) devices.push(name);
       }
     }
     return devices;
   } catch {
     return [];
   }
+}
+
+/** 从设备列表中找麦克风设备 */
+function findMicrophone(devices: string[]): string | null {
+  const keywords = ['麦克风', 'Microphone', 'mic', 'Mic', 'Realtek', 'Headset', '耳机'];
+  for (const kw of keywords) {
+    const found = devices.find(d => d.includes(kw));
+    if (found) return found;
+  }
+  return null;
 }
 
 export class AudioCapture {
@@ -75,99 +102,116 @@ export class AudioCapture {
     }
   }
 
-  /** Windows 系统音频采集：使用 WASAPI 回环（通过 ffmpeg dshow / Stereo Mix） */
+  /** Windows 系统音频：优先 ffmpeg dshow 回环设备 */
   private async startSystemAudioWindows(): Promise<void> {
-    if (isFfmpegAvailable()) {
-      this.l.info('ffmpeg 可用，尝试系统音频回环采集');
-      try {
-        const devices = getDshowDevices();
-        this.l.info('dshow 设备列表', { devices });
+    const ffmpegPath = findFfmpeg();
+    if (!ffmpegPath) {
+      this.l.warn('ffmpeg 未找到（已检查 E:\\ffmpeg 及系统 PATH），无法进行系统音频回环采集');
+      this.l.warn('请将 ffmpeg 的 bin 目录加入系统环境变量 PATH，然后重启终端');
+      throw new Error('ffmpeg 未安装或不在 PATH 中。系统音频采集需要 ffmpeg + Stereo Mix 设备');
+    }
+    this.l.info('找到 ffmpeg', { path: ffmpegPath });
 
-        // 查找可能的回环设备名
-        const loopbackCandidates = devices.filter(
-          (d) =>
-            d.toLowerCase().includes('stereo mix') ||
-            d.toLowerCase().includes('混音') ||
-            d.toLowerCase().includes('loopback') ||
-            d.toLowerCase().includes('what u hear') ||
-            d.toLowerCase().includes('wave out') ||
-            d.toLowerCase().includes('cable'),
-        );
+    const devices = getDshowDevices(ffmpegPath);
+    this.l.info('dshow 设备列表', { devices });
 
-        if (loopbackCandidates.length > 0) {
-          const audioDevice = loopbackCandidates[0];
-          this.l.info('找到回环设备', { device: audioDevice });
+    const loopbackCandidates = devices.filter(
+      (d) =>
+        d.toLowerCase().includes('stereo mix') ||
+        d.toLowerCase().includes('混音') ||
+        d.toLowerCase().includes('loopback') ||
+        d.toLowerCase().includes('what u hear') ||
+        d.toLowerCase().includes('wave out') ||
+        d.toLowerCase().includes('cable'),
+    );
 
-          const args = ['-f', 'dshow', '-i', `audio=${audioDevice}`, '-f', 's16le', '-acodec', 'pcm_s16le', '-ar', '16000', '-ac', '1', 'pipe:1'];
-          this.recordProcess = spawn('ffmpeg', args, { stdio: ['ignore', 'pipe', 'pipe'] });
+    if (loopbackCandidates.length > 0) {
+      const audioDevice = loopbackCandidates[0];
+      this.l.info('找到回环设备', { device: audioDevice });
 
-          // 等待300ms检查进程是否存活
-          await new Promise<void>((resolve, reject) => {
-            const timeout = setTimeout(() => {
-              if (this.recordProcess && this.recordProcess.exitCode === null) {
-                resolve();
-              } else {
-                reject(new Error('ffmpeg 进程启动后立即退出'));
-              }
-            }, 300);
-            this.recordProcess!.once('exit', (code) => {
-              clearTimeout(timeout);
-              reject(new Error(`ffmpeg 进程异常退出，code=${code}。请确认 Stereo Mix 已在 Windows 声音设置中启用`));
-            });
-            this.recordProcess!.once('error', (err) => {
-              clearTimeout(timeout);
-              reject(err);
-            });
-          });
+      const args = ['-f', 'dshow', '-i', `audio=${audioDevice}`, '-f', 's16le', '-acodec', 'pcm_s16le', '-ar', '16000', '-ac', '1', 'pipe:1'];
+      this.recordProcess = spawn(ffmpegPath, args, { stdio: ['ignore', 'pipe', 'pipe'] });
 
-          this.setupProcessListeners('ffmpeg dshow');
-          this.emitter.emit(EVENTS.START);
-          this.l.info('系统音频采集已启动 (ffmpeg dshow)');
-          return;
-        }
+      await new Promise<void>((resolve, reject) => {
+        const timeout = setTimeout(() => {
+          if (this.recordProcess && this.recordProcess.exitCode === null) {
+            resolve();
+          } else {
+            reject(new Error('ffmpeg 进程启动后立即退出'));
+          }
+        }, 300);
+        this.recordProcess!.once('exit', (code) => {
+          clearTimeout(timeout);
+          reject(new Error(`ffmpeg 进程异常退出(code=${code})。请确认 ${audioDevice} 已启用`));
+        });
+        this.recordProcess!.once('error', (err) => {
+          clearTimeout(timeout);
+          reject(err);
+        });
+      });
 
-        this.l.warn('未找到系统音频回环设备，设备列表:', { devices });
-        this.l.warn('请在 Windows 声音设置 → 录制设备 → 右键启用 Stereo Mix（立体声混音），或安装 VB-Cable');
-      } catch (ffmpegErr) {
-        this.l.warn('ffmpeg dshow 采集失败', { error: (ffmpegErr as Error).message });
-      }
-    } else {
-      this.l.warn('ffmpeg 未安装，无法进行系统音频回环采集');
+      this.setupProcessListeners('ffmpeg dshow');
+      this.emitter.emit(EVENTS.START);
+      this.l.info('系统音频采集已启动 (ffmpeg dshow)', { device: audioDevice });
+      return;
     }
 
-    // 回退到麦克风
-    this.l.warn('系统音频不可用，回退到麦克风采集（只能录到麦克风声音，不能录系统播放的音频）');
-    await this.startMicrophone(undefined);
+    this.l.warn('未找到系统音频回环设备（Stereo Mix/Cable）', { devices });
+    throw new Error(
+      '未检测到 Stereo Mix 或 VB-Cable 等回环设备。请在 Windows 声音设置 → 录制设备 → 右键启用 Stereo Mix（立体声混音），或安装 VB-Cable 虚拟音频设备',
+    );
   }
 
-  /** macOS 系统音频采集（通过 BlackHole / Soundflower） */
+  /** macOS 系统音频（预留） */
   private async startSystemAudioMacOS(): Promise<void> {
-    if (isFfmpegAvailable()) {
-      this.l.info('尝试 macOS 系统音频采集（avfoundation）');
-      try {
-        this.recordProcess = spawn('ffmpeg', [
-          '-f', 'avfoundation',
-          '-i', ':0',
-          '-f', 's16le',
-          '-acodec', 'pcm_s16le',
-          '-ar', '16000',
-          '-ac', '1',
-          'pipe:1',
-        ], { stdio: ['ignore', 'pipe', 'pipe'] });
-        this.setupProcessListeners('ffmpeg avfoundation');
-        this.emitter.emit(EVENTS.START);
-        this.l.info('系统音频采集已启动 (ffmpeg avfoundation)');
-        return;
-      } catch {
-        this.l.warn('ffmpeg avfoundation 失败，回退');
-      }
+    const ffmpegPath = findFfmpeg();
+    if (!ffmpegPath) {
+      throw new Error('macOS 系统音频采集需要安装 BlackHole 或 Soundflower，以及 ffmpeg');
     }
-    this.l.warn('macOS 系统音频采集需要安装 BlackHole 或 Soundflower，当前回退到麦克风');
-    await this.startMicrophone(undefined);
+    this.recordProcess = spawn(ffmpegPath, [
+      '-f', 'avfoundation', '-i', ':0', '-f', 's16le',
+      '-acodec', 'pcm_s16le', '-ar', '16000', '-ac', '1', 'pipe:1',
+    ], { stdio: ['ignore', 'pipe', 'pipe'] });
+    this.setupProcessListeners('ffmpeg avfoundation');
+    this.emitter.emit(EVENTS.START);
+    this.l.info('系统音频采集已启动 (ffmpeg avfoundation)');
   }
 
-  /** 麦克风采集（node-record-lpcm16 → sox fallback） */
+  /** 麦克风采集：用 ffmpeg dshow 直连（避免 node-record-lpcm16 内部 sox 崩溃） */
   private async startMicrophone(deviceId?: string): Promise<void> {
+    const ffmpegPath = findFfmpeg();
+
+    if (ffmpegPath && process.platform === 'win32') {
+      const devices = getDshowDevices(ffmpegPath);
+      this.l.info('dshow 设备列表', { devices });
+
+      let micDevice = deviceId;
+      if (!micDevice) {
+        micDevice = findMicrophone(devices);
+      }
+
+      if (micDevice) {
+        this.l.info('使用麦克风设备', { device: micDevice });
+        const args = ['-f', 'dshow', '-i', `audio=${micDevice}`, '-f', 's16le', '-acodec', 'pcm_s16le', '-ar', '16000', '-ac', '1', 'pipe:1'];
+        this.recordProcess = spawn(ffmpegPath, args, { stdio: ['ignore', 'pipe', 'pipe'] });
+        this.setupProcessListeners('ffmpeg dshow-mic');
+        this.emitter.emit(EVENTS.START);
+        this.l.info('麦克风采集已启动 (ffmpeg dshow)');
+        return;
+      }
+
+      // 麦克风设备也找不到，用 ffmpeg 默认音频输入
+      this.l.warn('未找到命名的麦克风设备，尝试默认输入');
+      const args = ['-f', 'dshow', '-i', 'audio=default', '-f', 's16le', '-acodec', 'pcm_s16le', '-ar', '16000', '-ac', '1', 'pipe:1'];
+      this.recordProcess = spawn(ffmpegPath, args, { stdio: ['ignore', 'pipe', 'pipe'] });
+      this.setupProcessListeners('ffmpeg dshow-default');
+      this.emitter.emit(EVENTS.START);
+      this.l.info('麦克风采集已启动 (ffmpeg dshow default)');
+      return;
+    }
+
+    // 无 ffmpeg：尝试 node-record-lpcm16（有崩溃风险，需全程 try-catch）
+    this.l.warn('ffmpeg 不可用，尝试 node-record-lpcm16（需要 sox）');
     try {
       const recordModule = require('node-record-lpcm16');
       const record = recordModule.record;
@@ -187,6 +231,8 @@ export class AudioCapture {
           });
           audioStream.on('error', (err: Error) => {
             this.l.error('node-record-lpcm16 stream error', { error: err.message });
+            this.running = false;
+            this.emitter.emit(EVENTS.ERROR, err);
           });
           this.emitter.emit(EVENTS.START);
           this.l.info('麦克风采集已启动 (node-record-lpcm16)');
@@ -194,15 +240,14 @@ export class AudioCapture {
         }
       }
     } catch (e: any) {
-      this.l.warn('node-record-lpcm16 不可用，回退 sox', { error: e?.message || String(e) });
+      this.l.warn('node-record-lpcm16 不可用', { error: e?.message || String(e) });
     }
 
-    const { cmd, args } = this.getRecorderCommand('microphone', deviceId);
-    this.l.info('启动录音进程（sox fallback）', { cmd, args: args.join(' ') });
-    this.recordProcess = spawn(cmd, args, { stdio: ['ignore', 'pipe', 'pipe'] });
-    this.setupProcessListeners('sox');
-    this.emitter.emit(EVENTS.START);
-    this.l.info('麦克风采集已启动 (sox fallback)');
+    throw new Error(
+      '麦克风采集失败。请安装 ffmpeg 到系统 PATH（推荐），或安装 sox。\n' +
+      'ffmpeg 下载: https://ffmpeg.org\n' +
+      'sox 下载: https://sourceforge.net/projects/sox/',
+    );
   }
 
   /** 设置音频采集进程的通用监听器 */
@@ -271,13 +316,12 @@ export class AudioCapture {
   }
 
   async getAvailableDevices(): Promise<{ deviceId: string; label: string }[]> {
-    if (isFfmpegAvailable()) {
+    const ffmpegPath = findFfmpeg();
+    if (ffmpegPath) {
       try {
-        const devices = getDshowDevices();
+        const devices = getDshowDevices(ffmpegPath);
         return devices.map((d, i) => ({ deviceId: `dshow-${i}`, label: d }));
-      } catch {
-        /* ignore */
-      }
+      } catch { /* ignore */ }
     }
     return [];
   }
@@ -288,14 +332,5 @@ export class AudioCapture {
 
   get source(): 'system' | 'microphone' {
     return this.currentSource;
-  }
-
-  private getRecorderCommand(source: 'system' | 'microphone', deviceId?: string): { cmd: string; args: string[] } {
-    const rate = '16000';
-    const platform = process.platform;
-    if (platform === 'win32' || platform === 'darwin') {
-      return { cmd: 'sox', args: ['-d', '-r', rate, '-c', '1', '-b', '16', '-e', 'signed-integer', '-t', 'raw', '-'] };
-    }
-    return { cmd: 'arecord', args: ['-D', deviceId || 'default', '-r', rate, '-c', '1', '-f', 'S16_LE', '-t', 'raw'] };
   }
 }

@@ -39,6 +39,14 @@ try {
   }
 } catch { appLogger.warn('.env 文件加载失败，将使用系统环境变量'); }
 
+/** 全局未捕获异常兜底，防止进程崩溃 */
+process.on('uncaughtException', (err) => {
+  appLogger.error('未捕获的异常', { error: err.message, stack: err.stack?.substring(0, 500) });
+  try {
+    dialog.showErrorBox('SynchroLens — 发生错误', `${err.message}\n\n详细日志请查看 logs/ 目录`);
+  } catch { /* 忽略 */ }
+});
+
 /** 窗口引用 */
 let mainWindow: BrowserWindow | null = null;
 let subtitleWindow: BrowserWindow | null = null;
