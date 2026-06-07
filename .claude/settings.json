@@ -1,0 +1,22 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(git commit -m 'refactor\\(translate\\): 翻译服务固定DeepSeek+移除服务商选择 \\(#89\\) *)",
+      "Bash(git commit -m 'feat\\(settings\\): Toggle开关滑块动画 + 移除自动保存开关 \\(#91\\) *)",
+      "Bash(git commit -m 'feat\\(data\\): 导出全部笔记添加确认弹窗+路径通知 \\(#92\\) *)",
+      "Bash(git commit -m 'feat\\(favorite\\): 收藏卡片来源笔记标题可点击跳转 \\(#93\\) *)",
+      "Bash(git commit -m 'feat\\(dict\\): 词典加载文件使用Electron原生文件对话框 \\(#94\\) *)",
+      "Bash(git commit -m 'feat\\(favorite\\): 收藏卡片风格切换CSS实现 — 暗夜蓝/深空灰/墨绿 \\(#95\\) *)",
+      "Bash(git commit -m 'feat\\(theme\\): Light/Dark/System 主题切换 CSS 变量实现 \\(#96\\) *)",
+      "Bash(git commit -m 'feat\\(subtitle\\): 字幕双语开关 — showBilingual=false 时只显示译文 \\(#97\\) *)",
+      "Bash(git commit -m 'feat\\(shortcut\\): 全局快捷键 Ctrl+Shift+P 暂停/恢复会话 \\(#98\\) *)",
+      "Bash(git commit -m 'feat\\(vector\\): DeepSeek Embedding API 客户端 \\(#99\\) *)",
+      "Bash(git commit -m 'feat\\(improve\\): 改进意见向量化存储 + PersonalDictStore 相似搜索 \\(#100\\) *)",
+      "Bash(gh --version)",
+      "Bash(gh auth *)",
+      "Bash(git branch *)",
+      "Bash(git commit *)",
+      "Bash(gh pr *)"
+    ]
+  }
+}

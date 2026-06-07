@@ -21,6 +21,7 @@ import { FavoriteStore } from './modules/favorite/FavoriteStore';
 import { NoteReader } from './modules/note/NoteReader';
 import { DictStore } from './modules/dictionary/DictStore';
 import { PersonalDictStore } from './modules/dictionary/PersonalDictStore';
+import { ConfigStore } from './modules/config/ConfigStore';
 import type { AppConfig, Session } from '../shared/types';
 import { IPC_CHANNELS } from '../shared/ipcChannels';
 
@@ -46,6 +47,7 @@ let favoriteStore: FavoriteStore | null = null;
 let noteReader: NoteReader | null = null;
 let dictStore: DictStore | null = null;
 let personalDictStore: PersonalDictStore | null = null;
+let configStore: ConfigStore | null = null;
 
 /** 渲染进程开发服务器基础 URL */
 const RENDERER_DEV_URL = process.env.ELECTRON_RENDERER_URL;
@@ -308,6 +310,14 @@ function setupIpcHandlers(): void {
     }
   });
 
+  ipcMain.handle(IPC_CHANNELS.CONFIG_LOAD, () => {
+    return configStore?.load() ?? null;
+  });
+
+  ipcMain.handle(IPC_CHANNELS.CONFIG_SAVE, (_e, config: AppConfig) => {
+    configStore?.save(config);
+  });
+
   registerIPCHandlers();
 }
 
@@ -331,6 +341,14 @@ export function registerAppLifecycle(): void {
     noteReader = new NoteReader(join(homedir(), 'SynchroLens', 'Notes'));
     dictStore = new DictStore();
     personalDictStore = new PersonalDictStore();
+    configStore = new ConfigStore();
+
+    // 加载持久化配置并覆盖 process.env
+    const savedConfig = configStore.load();
+    if (savedConfig.stt?.appId) process.env.XFYUN_APP_ID = savedConfig.stt.appId;
+    if (savedConfig.stt?.apiKey) process.env.XFYUN_API_KEY = savedConfig.stt.apiKey;
+    if (savedConfig.stt?.apiSecret) process.env.XFYUN_API_SECRET = savedConfig.stt.apiSecret;
+    if (savedConfig.translation?.apiKey) process.env.DEEPSEEK_API_KEY = savedConfig.translation.apiKey;
     const sessionManager = new SessionManager({
       audioCapture, sttClient, translator, noteWriter, correctionDetector
     });
