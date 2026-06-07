@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import { Sidebar, type ViewType } from '../../components/Sidebar/Sidebar';
 import { NotesView } from '../../components/Notes/NotesView';
 import { FavoritesView } from '../../components/Favorites/FavoritesView';
@@ -61,6 +61,15 @@ export function MainWindow() {
   const ipc = useIPC();
   const session = useSession({ ipc });
 
+  // 启动时从磁盘加载已保存的配置
+  useEffect(() => {
+    window.synchrolens.loadConfig().then((saved: unknown) => {
+      if (saved && typeof saved === 'object') {
+        setConfig(saved as AppConfig);
+      }
+    }).catch(() => {});
+  }, []);
+
   const isRecording = session.sessionState === 'running';
   const isNotes = activeView === 'notes';
 
@@ -82,12 +91,11 @@ export function MainWindow() {
     window.synchrolens.prepareRecord().catch(() => {});
   }, []);
 
-  const handleConfigSave = useCallback((partial: Partial<AppConfig>) => {
-    setConfig(prev => {
-      const next = { ...prev, ...partial };
-      ipc.updateConfig(next as unknown as Record<string, unknown>);
-      return next;
-    });
+  const handleConfigSave = useCallback(async (newConfig: AppConfig) => {
+    setConfig(newConfig);
+    ipc.updateConfig(newConfig as unknown as Record<string, unknown>);
+    // 持久化保存到磁盘
+    await window.synchrolens.saveConfig(newConfig);
   }, [ipc]);
 
   if (showSplash) {

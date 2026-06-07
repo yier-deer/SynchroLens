@@ -61,6 +61,10 @@ export const IPC_CHANNELS = {
   // ===== 数据管理 =====
   DATA_CLEAR: 'data:clear',
   SELECT_DIRECTORY: 'dialog:select-directory',
+
+  // ===== 配置持久化 =====
+  CONFIG_LOAD: 'config:load',
+  CONFIG_SAVE: 'config:save',
 } as const;
 
 /**

@@ -106,6 +106,9 @@ function buildAPI(): SynchroLensAPI {
 
     clearData(types) { return ipcRenderer.invoke(IPC_CHANNELS.DATA_CLEAR, { types }); },
 
+    loadConfig() { return ipcRenderer.invoke(IPC_CHANNELS.CONFIG_LOAD); },
+    saveConfig(config: unknown) { return ipcRenderer.invoke(IPC_CHANNELS.CONFIG_SAVE, config); },
+
     log(level, module, message, data?) { ipcRenderer.send(LOG_CHANNELS.LOG_SEND, { level, module, message, data }); },
   };
 }
