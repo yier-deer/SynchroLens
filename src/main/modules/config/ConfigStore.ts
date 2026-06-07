@@ -43,6 +43,12 @@ export class ConfigStore {
       const raw = readFileSync(this.configPath, 'utf-8');
       const saved = JSON.parse(raw) as Partial<AppConfig>;
       let merged = deepMerge(DEFAULT_CONFIG as any, saved) as AppConfig;
+      // 向量模型 API 端点和模型名始终使用代码默认值（用户只保留 apiKey）
+      if (saved.vector) {
+        merged.vector = { ...DEFAULT_CONFIG.vector, ...saved.vector };
+        merged.vector.apiEndpoint = DEFAULT_CONFIG.vector.apiEndpoint;
+        merged.vector.model = DEFAULT_CONFIG.vector.model;
+      }
       // 如果 saveDir 仍为空，补齐默认值
       if (!merged.note.saveDir) {
         merged = deepMerge(merged as any, { note: { saveDir: join(app.getAppPath(), 'Note') } }) as AppConfig;

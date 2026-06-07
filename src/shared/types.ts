@@ -438,7 +438,7 @@ export const DEFAULT_CONFIG: AppConfig = {
   },
   vector: {
     apiEndpoint: 'https://ark.cn-beijing.volces.com/api/v3',
-    model: 'doubao-embedding',
+    model: 'doubao-embedding-vision-251215',
   },
   note: {
     saveDir: '',
