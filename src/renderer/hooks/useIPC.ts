@@ -10,8 +10,8 @@ import { IPC_CHANNELS } from '../../shared/ipcChannels';
 const win: any = typeof window !== 'undefined' ? window : globalThis;
 
 /** 获取安全的 API 引用 */
-function getAPI(): typeof win.synchroLens | null {
-  return win.synchroLens ?? null;
+function getAPI(): typeof win.synchrolens | null {
+  return win.synchrolens ?? null;
 }
 
 /**
