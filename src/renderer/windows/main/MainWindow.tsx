@@ -159,7 +159,28 @@ export function MainWindow() {
               onSummaryExtracted={setNoteSummary}
             />
           )}
-          {activeView === 'favorites' && <FavoritesView />}
+          {activeView === 'favorites' && <FavoritesView onNavigateToNote={(notePath) => {
+            const findAndSelect = async () => {
+              try {
+                const tree = await window.synchrolens.listNotes() as NoteTreeItem[];
+                const findNote = (items: NoteTreeItem[]): NoteTreeItem | null => {
+                  for (const it of items) {
+                    if (it.type === 'file' && it.path === notePath) return it;
+                    if (it.children) { const f = findNote(it.children); if (f) return f; }
+                  }
+                  return null;
+                };
+                const note = findNote(tree);
+                if (note) { setSelectedNote(note); setActiveView('notes'); }
+              } catch {
+                const parts = notePath.replace(/\\/g, '/').split('/');
+                const name = parts[parts.length - 1] || notePath;
+                setSelectedNote({ name, path: notePath, type: 'file' });
+                setActiveView('notes');
+              }
+            };
+            findAndSelect();
+          }} />}
           {activeView === 'dictionary' && <DictionaryView />}
           {activeView === 'settings' && (
             <div className="h-full overflow-auto p-4">
