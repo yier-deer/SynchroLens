@@ -85,6 +85,8 @@ export interface GeneralConfig {
   autoStart: boolean;
   /** 字幕显示双语（原文+译文） */
   showBilingual: boolean;
+  /** 收藏卡片风格 */
+  cardStyle: '暗夜蓝' | '深空灰' | '墨绿';
 }
 
 /** STT 语音识别设置 */
@@ -420,6 +422,7 @@ export const DEFAULT_CONFIG: AppConfig = {
     minimizeToTray: true,
     autoStart: false,
     showBilingual: true,
+    cardStyle: '暗夜蓝',
   },
   stt: {
     provider: 'xfyun',
