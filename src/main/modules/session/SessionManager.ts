@@ -262,10 +262,13 @@ export class SessionManager {
     if (config.stt?.appId) process.env.XFYUN_APP_ID = config.stt.appId;
     if (config.stt?.apiKey) process.env.XFYUN_API_KEY = config.stt.apiKey;
     if (config.stt?.apiSecret) process.env.XFYUN_API_SECRET = config.stt.apiSecret;
+    if (config.stt?.language) this.deps.sttClient['language'] = config.stt.language;
     if (config.translation?.apiKey) {
       process.env.DEEPSEEK_API_KEY = config.translation.apiKey;
       this.deps.translator.setApiKey(config.translation.apiKey);
     }
+    if (config.translation?.model) this.deps.translator['model'] = config.translation.model;
+    if (config.translation?.targetLanguage) this.deps.translator['targetLanguage'] = config.translation.targetLanguage;
   }
 
   /**
