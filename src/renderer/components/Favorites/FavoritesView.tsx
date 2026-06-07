@@ -88,7 +88,7 @@ export function FavoritesView({ onNavigateToNote, cardStyle = '暗夜蓝' }: Fav
             <input
               type="text"
               value={searchQuery}
-              onChange={e => setSearchQuery(e.target.value)}
+              onChange={(e) => { setSearchQuery(e.target.value); }}
               onKeyDown={e => e.key === 'Enter' && handleSearch()}
               className="bg-transparent text-sm text-surface-200 placeholder-surface-500 outline-none w-40"
               placeholder="搜索收藏..."

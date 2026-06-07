@@ -43,7 +43,10 @@ export interface SynchroLensAPI {
   readNote(filePath: string): Promise<string>;
   exportAllNotes(savePath: string): Promise<void>;
   selectDirectory(): Promise<string | null>;
+  selectFile(filters?: Array<{ name: string; extensions: string[] }>): Promise<string | null>;
   clearData(types: ('notes' | 'favorites' | 'personalDict')[]): Promise<void>;
+  loadConfig(): Promise<unknown>;
+  saveConfig(config: unknown): Promise<void>;
   log(level: LogLevel, module: string, message: string, data?: unknown): void;
 }
 
