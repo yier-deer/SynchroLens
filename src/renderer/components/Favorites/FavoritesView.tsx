@@ -94,7 +94,7 @@ export function FavoritesView({ onNavigateToNote, cardStyle = '暗夜蓝' }: Fav
               placeholder="搜索收藏..."
             />
             {searchQuery && (
-              <button onClick={() => { setSearchQuery(''); loadFavorites(); }}>
+              <button onClick={() => { setSearchQuery(''); loadFavorites(); }} aria-label="清除搜索">
                 <X className="w-3.5 h-3.5 text-surface-500 hover:text-surface-300" />
               </button>
             )}
