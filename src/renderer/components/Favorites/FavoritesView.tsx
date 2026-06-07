@@ -3,7 +3,11 @@ import { Search, Trash2, X, Check, FileText } from 'lucide-react';
 import type { Favorite } from '../../../shared/types';
 import { useToast } from '../common/Toast';
 
-export function FavoritesView(): JSX.Element {
+interface FavoritesViewProps {
+  onNavigateToNote?: (notePath: string) => void;
+}
+
+export function FavoritesView({ onNavigateToNote }: FavoritesViewProps): JSX.Element {
   const [favorites, setFavorites] = useState<Favorite[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
   const [isManageMode, setIsManageMode] = useState(false);
@@ -145,7 +149,18 @@ export function FavoritesView(): JSX.Element {
                     </p>
                     <div className="flex items-center gap-2 text-xs text-surface-500">
                       <FileText className="w-3.5 h-3.5" />
-                      <span>{favorite.noteFileName}</span>
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          if (favorite.noteFilePath && onNavigateToNote) {
+                            onNavigateToNote(favorite.noteFilePath);
+                          }
+                        }}
+                        className="text-primary-400 hover:text-primary-300 hover:underline transition-colors cursor-pointer"
+                        title={`跳转到笔记: ${favorite.noteFileName}`}
+                      >
+                        {favorite.noteFileName}
+                      </button>
                       <span className="text-surface-700">·</span>
                       <span>{new Date(favorite.createdAt).toLocaleDateString()}</span>
                     </div>
