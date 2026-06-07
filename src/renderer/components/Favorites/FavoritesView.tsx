@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { Search, Trash2, Download, X, Check, FileText } from 'lucide-react';
+import { Search, Trash2, X, Check, FileText } from 'lucide-react';
 import type { Favorite } from '../../../shared/types';
 import { useToast } from '../common/Toast';
 
@@ -62,12 +62,6 @@ export function FavoritesView(): JSX.Element {
     setSelectedIds(new Set());
     loadFavorites();
     showToast('已删除选中项');
-  };
-
-  const handleExport = async () => {
-    const ids = Array.from(selectedIds);
-    await window.synchrolens.exportFavorites(ids, '/tmp/favorites.md');
-    showToast('导出成功');
   };
 
   const highlightText = (text: string, query: string) => {
@@ -191,12 +185,6 @@ export function FavoritesView(): JSX.Element {
                 删除选中
               </button>
               <button
-                onClick={handleExport}
-                disabled={selectedIds.size === 0}
-                className="flex items-center gap-2 px-3 py-2 bg-primary-500/20 text-primary-400 rounded-lg text-sm font-medium hover:bg-primary-500/30 transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                <Download className="w-4 h-4" />
-                导出选中
               </button>
             </div>
           </div>
