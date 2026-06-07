@@ -20,9 +20,9 @@ describe('ipcChannels 通道常量', () => {
       expect(IPC_CHANNELS.SUMMARY_TRIGGER).toBe('summary:trigger');
     });
 
-    it('应该共有 12 个通道', () => {
+    it('应该共有 37 个通道', () => {
       const keys = Object.keys(IPC_CHANNELS);
-      expect(keys).toHaveLength(12);
+      expect(keys).toHaveLength(37);
     });
   });
 
@@ -34,7 +34,7 @@ describe('ipcChannels 通道常量', () => {
         const expectedPrefix = key.toLowerCase().replace(/_([a-z])/g, (_, c) => c.toUpperCase());
         // 通道值格式为 "prefix:suffix"
         expect(typeof value).toBe('string');
-        expect(value).toMatch(/^[a-z]+:[a-z]+$/);
+        expect(value).toMatch(/^[a-z-]+[:][a-z:-]+$/);
       }
     });
   });
@@ -60,7 +60,7 @@ describe('ipcChannels 通道常量', () => {
     it('IPCChannel 类型应包含所有通道值', () => {
       const allValues = Object.values(IPC_CHANNELS) as string[];
       const channelValues: IPCChannel[] = [...allValues] as IPCChannel[];
-      expect(channelValues).toHaveLength(12);
+      expect(channelValues).toHaveLength(37);
     });
   });
 
