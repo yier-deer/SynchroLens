@@ -105,7 +105,6 @@ const GROUPS: SettingGroup[] = [
     fields: [
       { key: 'general.showBilingual', label: '显示双语', type: 'toggle' },
       { key: 'general.theme', label: '主题', type: 'select', options: ['light', 'dark', 'system'] },
-      { key: 'general.minimizeToTray', label: '最小化到托盘', type: 'toggle' },
       { key: 'general.autoStart', label: '开机自启', type: 'toggle' },
     ],
   },
@@ -131,7 +130,6 @@ const GROUPS: SettingGroup[] = [
     title: '📦 数据管理',
     fields: [
       { key: 'export', label: '导出全部笔记', type: 'button' },
-      { key: 'clear', label: '清除历史数据', type: 'button' },
     ],
   },
 ];
