@@ -121,6 +121,8 @@ function createSubtitleWindow(): BrowserWindow {
     transparent: true,
     frame: false,
     resizable: false,
+    // 字幕窗使用不同类型，确保Z序在控制窗之下
+    type: 'toolbar',
     skipTaskbar: true,
     webPreferences: {
       preload: getPreloadPath(),
