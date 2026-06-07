@@ -11,10 +11,11 @@ import type { TranslationResult } from '@shared/types';
 const STYLE = {
   container: {
     padding: '12px 24px',
-    background: `rgba(0, 0, 0, ${UI_CONSTANTS.SUBTITLE_BG_OPACITY})`,
+    background: 'rgba(0, 0, 0, 0.35)',
     borderRadius: '8px',
     maxWidth: '800px',
     minHeight: '60px',
+    WebkitAppRegion: 'drag' as const,
   },
   source: {
     fontSize: '14px',
@@ -95,7 +96,7 @@ export function SubtitleOverlay({ currentTranslation, confirmedTranslations, sho
   const hasCurrent = currentTranslation !== null;
 
   return (
-    <div style={STYLE.container}>
+    <div style={STYLE.container as React.CSSProperties}>
       <style>{cursorKeyframes}</style>
 
       {/* 已确认句（向上滚动，半透明） */}

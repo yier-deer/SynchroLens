@@ -103,18 +103,24 @@ function createMainWindow(): BrowserWindow {
 
 /**
  * 创建悬浮字幕窗口
+ * 半透明置底 — 位于屏幕底部居中，控制窗在其上方
  */
 function createSubtitleWindow(): BrowserWindow {
   appLogger.info('字幕窗口已创建');
+  const { screen } = require('electron');
+  const primaryDisplay = screen.getPrimaryDisplay();
+  const { width: screenW, height: screenH } = primaryDisplay.workAreaSize;
+  const winW = 800;
+  const winH = 180;
   const win = new BrowserWindow({
-    width: 800,
-    height: 120,
-    x: 0,
-    y: 0,
+    width: winW,
+    height: winH,
+    x: Math.round((screenW - winW) / 2),
+    y: screenH - winH - 80,
     alwaysOnTop: true,
     transparent: true,
     frame: false,
-    resizable: true,
+    resizable: false,
     skipTaskbar: true,
     webPreferences: {
       preload: getPreloadPath(),
@@ -137,14 +143,20 @@ function createSubtitleWindow(): BrowserWindow {
 
 /**
  * 创建控制悬浮窗
+ * 位于屏幕右上角，始终在最顶层
  */
 function createControlWindow(): BrowserWindow {
   appLogger.info('控制窗口已创建');
+  const { screen } = require('electron');
+  const primaryDisplay = screen.getPrimaryDisplay();
+  const { width: screenW } = primaryDisplay.workAreaSize;
+  const winW = 320;
+  const winH = 48;
   const win = new BrowserWindow({
-    width: 320,
-    height: 48,
-    x: 0,
-    y: 0,
+    width: winW,
+    height: winH,
+    x: screenW - winW - 20,
+    y: 20,
     alwaysOnTop: true,
     frame: false,
     resizable: false,
@@ -243,7 +255,26 @@ function setupIpcHandlers(): void {
     setBrowserWindows(getAllWindows());
   });
 
-  ipcMain.handle(IPC_CHANNELS.WINDOW_EXIT_CONTROL, (_event, payload: { action: string }) => {
+  ipcMain.handle(IPC_CHANNELS.WINDOW_EXIT_CONTROL, async (_event, payload: { action: string }) => {
+    if (payload.action === 'prompt') {
+      const result = await dialog.showMessageBox({
+        type: 'question',
+        buttons: ['最小化到系统托盘', '关闭控制窗口（停止录制）', '取消'],
+        defaultId: 0,
+        cancelId: 2,
+        title: 'SynchroLens',
+        message: '确认退出',
+        detail: '请选择退出方式',
+      });
+      if (result.response === 0) {
+        if (controlWindow && !controlWindow.isDestroyed()) { controlWindow.hide(); }
+      } else if (result.response === 1) {
+        if (controlWindow && !controlWindow.isDestroyed()) { controlWindow.close(); }
+        if (subtitleWindow && !subtitleWindow.isDestroyed()) { subtitleWindow.close(); }
+        if (mainWindow && !mainWindow.isDestroyed()) { mainWindow.show(); }
+      }
+      return;
+    }
     if (payload.action === 'minimize') {
       if (controlWindow && !controlWindow.isDestroyed()) { controlWindow.hide(); }
     } else if (payload.action === 'stop') {
@@ -269,7 +300,7 @@ function setupIpcHandlers(): void {
       { source: payload.original, target: payload.improved, improvement: payload.reason, sourceNote: payload.context || '' },
     );
     // 向量化并存储
-    if (embeddingClient?.apiKey) {
+    if (embeddingClient?.hasApiKey) {
       try {
         const combined = `原文: ${payload.original}\n改进译文: ${payload.improved}\n改进建议: ${payload.reason}`;
         const embeddings = await embeddingClient.embedTexts([combined]);
@@ -386,7 +417,7 @@ export function registerAppLifecycle(): void {
     if (savedConfig.stt?.apiSecret) process.env.XFYUN_API_SECRET = savedConfig.stt.apiSecret;
     if (savedConfig.translation?.apiKey) process.env.DEEPSEEK_API_KEY = savedConfig.translation.apiKey;
     const sessionManager = new SessionManager({
-      audioCapture, sttClient, translator, noteWriter, correctionDetector
+      audioCapture, sttClient, translator: translator as any, noteWriter, correctionDetector
     });
 
     let currentSession: Session | null = null;

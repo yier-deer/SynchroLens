@@ -95,7 +95,7 @@ export function ControlBar({
   const isRunning = sessionState === 'running';
 
   return (
-    <div style={S.bar}>
+    <div style={S.bar} className="draggable-region">
       <div style={S.left}>
         🎙 SynchroLens
         {isRunning && (
@@ -103,7 +103,7 @@ export function ControlBar({
         )}
       </div>
 
-      <div style={S.right}>
+      <div style={S.right} className="no-drag">
         <button style={S.recordBtn(isRunning)} onClick={onToggleRecording}>
           {isRunning ? '⏹ 停止' : '▶ 开始'}
         </button>
