@@ -2,35 +2,44 @@
 
 本项目的所有重要变更均会记录在此文件中。
 
-格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，
-本项目遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
+格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)。
 
-## [Unreleased]
+## [0.1.0] - 2026-06-07
 
-### Added — P0 核心功能（规划中）
+### Added — P0 核心功能
 
-- 系统音频捕获：采集系统播放音频流，作为同声传译的音源输入
-- 麦克风捕获：采集麦克风音频流，支持现场发言场景
-- 实时语音识别（STT）：接入讯飞语音识别服务，将音频流转为文字
-- 流式翻译：接入 DeepSeek 翻译服务，对识别文本进行实时翻译
-- 字幕渲染：在主界面中渲染双语字幕，支持实时滚动显示
-- 当前句纠正：对当前正在显示的句子进行实时修正，提升翻译准确性
-- 悬浮字幕窗口：提供置顶悬浮窗，在其他应用上方显示字幕
-- 控制悬浮窗：提供迷你控制面板，支持开始/暂停/停止等快捷操作
+- 系统音频捕获：通过 ffmpeg dshow 采集 Windows 立体声混音
+- 实时语音识别（STT）：接入讯飞 WebSocket 实时转写 API，支持中/英/日/韩
+- 流式翻译：接入 DeepSeek 流式 Chat Completions API，极简直译模式
+- 字幕渲染：双语字幕（原文+译文），支持实时滚动显示和光标闪烁动画
+- 悬浮字幕窗口：透明置顶、鼠标穿透，在其他应用上方显示字幕
+- 控制悬浮窗：迷你控制面板，支持开始/停止/字幕开关/最小化/退出
+- SessionManager 周期翻译：每 1.5s 扫描累积文本，跨 STT 断连保持，结束前 flush
 
-### Added — P1 增强功能（规划中）
+### Added — P1 增强功能
 
-- 笔记自动写入（Markdown）：将识别和翻译内容自动整理为 Markdown 笔记
-- 笔记纠正标注：在笔记中标注被纠正的内容，保留修改痕迹
-- 自动总结：会话结束后自动生成内容摘要
+- 笔记自动写入（Markdown）：识别+翻译结果自动整理为 Markdown，按 `YYYY-MM-DD/HH-mm.md` 组织
+- 笔记阅读：react-markdown + remark-gfm 渲染，右键菜单（复制/收藏/改进）
+- 自动总结：会话结束后 LLM 生成摘要（主要议题 + 关键结论）
+- 笔记历史刷新：侧边栏手动刷新按钮 + 停止后自动刷新
 
-### Added — P2 扩展功能（规划中）
+### Added — P2 扩展功能
 
-- 本地文件音频：支持导入本地音频文件进行离线识别与翻译
+- 收藏系统：右键收藏 → 卡片展示 → 搜索高亮 → 批量管理 → 导出 Markdown
+- 三层词典：
+  - 语言词典：导入 .json/.csv/.txt 术语表文件
+  - 领域词典：导入行业文档
+  - 个人词典：笔记中"改进翻译"自动收录，附带向量 embedding
+- 设置面板：STT/翻译/向量/笔记/音频 五大类配置，持久化到本地 JSON
+- 向量化检索：豆包 Embedding API，个人词典余弦相似度搜索
 
-### Added — 工程基础设施（规划中）
+### Added — 工程基础设施
 
-- Electron + React + TypeScript + TailwindCSS + Vite 项目脚手架
-- IPC 通信层：主进程与渲染进程间的消息通道
-- 预加载脚本：安全的桥接 API 暴露
-- Conventional Commits 提交规范与 scope 定义
+- Electron 28 + React 18 + TypeScript 5 + TailwindCSS 3 + Vite 5 脚手架
+- 多窗口架构：主窗口 + 字幕窗 + 控制窗，三窗口独立渲染进程
+- IPC 通信层：30+ 条通道，涵盖会话/翻译/笔记/收藏/词典/配置
+- 预加载脚本：28 个安全桥接 API 方法
+- 结构化日志：winston + daily-rotate-file，全局 createLogger 封装
+- 21 个 Jest 测试文件，镜像 src/ 目录结构
+- .env 配置 + settings.json 持久化双通道
+- electron-builder 打包配置
