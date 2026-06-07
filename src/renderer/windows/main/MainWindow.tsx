@@ -13,18 +13,28 @@ import type { AppConfig, NoteTreeItem } from '@shared/types';
 
 function SettingsWithActions({ config, onSave }: { config: AppConfig; onSave: (partial: Partial<AppConfig>) => void }) {
   const { showToast } = useToast();
+  const [showExportConfirm, setShowExportConfirm] = useState(false);
 
-  const handleExportNotes = useCallback(async () => {
+  const handleExportNotesClick = useCallback(() => {
+    setShowExportConfirm(true);
+  }, []);
+
+  const handleExportConfirm = useCallback(async () => {
+    setShowExportConfirm(false);
     try {
       const dir = await window.synchrolens.selectDirectory();
       if (!dir) return;
       const savePath = `${dir}\\notes-export-${Date.now()}.zip`;
       await window.synchrolens.exportAllNotes(savePath);
-      showToast('笔记导出成功');
+      showToast(`笔记已导出到 ${savePath}`);
     } catch {
       showToast('导出失败', 'error');
     }
   }, [showToast]);
+
+  const handleExportCancel = useCallback(() => {
+    setShowExportConfirm(false);
+  }, []);
 
   const handleClearData = useCallback(async () => {
     const confirmed = window.confirm('确定要清除所有历史数据吗？此操作不可撤销。');
@@ -43,12 +53,30 @@ function SettingsWithActions({ config, onSave }: { config: AppConfig; onSave: (p
   }, [onSave, showToast]);
 
   return (
-    <SettingsPanel
-      config={config}
-      onSave={handleSaveSettings}
-      onExportNotes={handleExportNotes}
-      onClearData={handleClearData}
-    />
+    <>
+      <SettingsPanel
+        config={config}
+        onSave={handleSaveSettings}
+        onExportNotes={handleExportNotesClick}
+        onClearData={undefined}
+      />
+      {showExportConfirm && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm">
+          <div className="bg-surface-800 border border-surface-700 rounded-xl p-6 w-96 shadow-2xl">
+            <h3 className="text-base font-semibold text-surface-100 mb-2">导出全部笔记</h3>
+            <p className="text-sm text-surface-400 mb-6">确定要导出全部笔记吗？导出文件将保存为 ZIP 压缩包。</p>
+            <div className="flex justify-end gap-3">
+              <button onClick={handleExportCancel} className="px-4 py-2 rounded-lg bg-surface-700 text-surface-300 text-sm hover:bg-surface-600 transition-colors">
+                取消
+              </button>
+              <button onClick={handleExportConfirm} className="px-4 py-2 rounded-lg bg-primary-500 text-white text-sm font-medium hover:bg-primary-600 transition-colors">
+                确定导出
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </>
   );
 }
 
