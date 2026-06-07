@@ -442,6 +442,11 @@ export function registerAppLifecycle(): void {
     if (savedConfig.stt?.apiKey) process.env.XFYUN_API_KEY = savedConfig.stt.apiKey;
     if (savedConfig.stt?.apiSecret) process.env.XFYUN_API_SECRET = savedConfig.stt.apiSecret;
     if (savedConfig.translation?.apiKey) process.env.DEEPSEEK_API_KEY = savedConfig.translation.apiKey;
+    if (savedConfig.translation?.apiKey) {
+      translator.setApiKey(savedConfig.translation.apiKey);
+      if (savedConfig.translation.model) translator.setModel(savedConfig.translation.model);
+      if (savedConfig.translation.targetLanguage) translator.setTargetLanguage(savedConfig.translation.targetLanguage);
+    }
     const sessionManager = new SessionManager({
       audioCapture, sttClient, translator: translator as any, noteWriter, correctionDetector
     });

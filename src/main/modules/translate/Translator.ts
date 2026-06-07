@@ -46,6 +46,10 @@ export class Translator {
     this.apiKey = key;
   }
 
+  setModel(model: string): void {
+    this.model = model;
+  }
+
   setTargetLanguage(lang: string): void {
     this.targetLanguage = lang;
   }

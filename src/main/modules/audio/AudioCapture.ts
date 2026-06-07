@@ -1,6 +1,7 @@
 import { spawn, execSync } from 'child_process';
 import { EventEmitter } from 'events';
 import { existsSync } from 'fs';
+import { Transform } from 'stream';
 import { createLogger } from '../../utils/logger';
 
 type AudioDataCallback = (pcmBuffer: Int16Array) => void;
@@ -140,8 +141,11 @@ export class AudioCapture {
   /** 用 ffmpeg dshow 启动指定设备 */
   private async launchFfmpeg(ffmpegPath: string, device: string | null, label: string): Promise<void> {
     const input = device ? `audio=${device}` : 'audio=default';
-    const args = ['-f', 'dshow', '-rtbufsize', '2M', '-i', input, '-f', 's16le', '-acodec', 'pcm_s16le', '-ar', '16000', '-ac', '1', 'pipe:1'];
+    const args = ['-f', 'dshow', '-rtbufsize', '2M', '-i', input, '-f', 's16le', '-ar', '16000', '-ac', '1', 'pipe:1'];
     this.recordProcess = spawn(ffmpegPath, args, { stdio: ['ignore', 'pipe', 'pipe'] });
+
+    // ← 关键：立即设置数据监听器，否则 pipe 会在 300ms 内被填满阻塞
+    this.setupProcessListeners(label);
 
     // 等 300ms 确认进程存活
     await new Promise<void>((resolve, reject) => {
@@ -152,9 +156,12 @@ export class AudioCapture {
           reject(new Error('ffmpeg 进程启动后立即退出'));
         }
       }, 300);
+      // 如果已经在 close handler 里标记了 running=false，不再 reject
       this.recordProcess!.once('exit', (code) => {
         clearTimeout(timeout);
-        reject(new Error(`ffmpeg 进程异常退出(code=${code})。设备: ${device || 'default'}`));
+        if (this.running) {
+          reject(new Error(`ffmpeg 进程异常退出(code=${code})。设备: ${device || 'default'}`));
+        }
       });
       this.recordProcess!.once('error', (err) => {
         clearTimeout(timeout);
@@ -162,35 +169,45 @@ export class AudioCapture {
       });
     });
 
-    this.setupProcessListeners(label);
     this.emitter.emit(EVENTS.START);
     this.l.info('音频采集已启动', { label, device: device || 'default' });
   }
 
-  /** 设置音频采集进程的通用监听器 */
+  /** 设置音频采集进程的通用监听器 — 用 pipe() 管道消费 stdout */
   private setupProcessListeners(label: string): void {
     if (!this.recordProcess) return;
 
-    this.recordProcess.stdout!.on('data', (chunk: Buffer) => {
-      if (!this.running) return;
-      const samples = Math.floor(chunk.length / 2);
-      if (samples <= 0) return;
-      const int16Buffer = new Int16Array(chunk.buffer, chunk.byteOffset, samples);
-      this.emitter.emit(EVENTS.DATA, int16Buffer);
-      for (const cb of this.dataCallbacks) {
-        try { cb(int16Buffer); } catch { /* ignore */ }
-      }
-      // 每 50 个 chunk 输出一条 info 日志确认管线活着
-      this.chunkCount++;
-      if (this.chunkCount % 50 === 0) {
-        this.l.info('音频数据管线', { chunks: this.chunkCount, bytes: chunk.length });
-      }
-    });
+    const rx = new Transform({
+      transform(chunk: Buffer, _encoding, callback) {
+        if (this._rxRunning) {
+          const samples = Math.floor(chunk.length / 2);
+          if (samples > 0) {
+            const int16Buffer = new Int16Array(chunk.buffer, chunk.byteOffset, samples);
+            this._rxEmitter.emit(EVENTS.DATA, int16Buffer);
+            for (const cb of this._rxCallbacks) {
+              try { cb(int16Buffer); } catch { /* ignore */ }
+            }
+            this._rxChunkCount++;
+            if (this._rxChunkCount % 50 === 0) {
+              this._rxLogger.info('音频数据管线', { chunks: this._rxChunkCount, bytes: chunk.length });
+            }
+          }
+        }
+        callback();
+      },
+    }) as Transform & { _rxRunning: boolean; _rxEmitter: EventEmitter; _rxCallbacks: Set<AudioDataCallback>; _rxChunkCount: number; _rxLogger: ReturnType<typeof createLogger> };
+    rx._rxRunning = this.running;
+    rx._rxEmitter = this.emitter;
+    rx._rxCallbacks = this.dataCallbacks;
+    rx._rxChunkCount = 0;
+    rx._rxLogger = this.l;
+
+    this.recordProcess.stdout!.pipe(rx);
 
     this.recordProcess.stderr!.on('data', (data: Buffer) => {
       const msg = data.toString().trim();
       if (msg) {
-        this.l.debug(`${label} stderr`, { message: msg.substring(0, 200) });
+        this.l.info(`${label} stderr`, { message: msg.substring(0, 300) });
       }
     });
 
@@ -201,7 +218,8 @@ export class AudioCapture {
     });
 
     this.recordProcess.on('close', (code: number | null) => {
-      this.l.info(`${label} 进程退出`, { code });
+      rx._rxRunning = false;
+      this.l.info(`${label} 进程退出`, { code, chunks: rx._rxChunkCount });
       if (this.running) {
         this.running = false;
         this.emitter.emit(EVENTS.STOP);
