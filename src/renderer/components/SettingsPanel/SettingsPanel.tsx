@@ -67,12 +67,10 @@ const GROUPS: SettingGroup[] = [
     key: 'stt',
     title: '🎤 语音识别',
     fields: [
-      { key: 'stt.provider', label: '服务商', type: 'select', options: ['xfyun', 'whisper-local'] },
       { key: 'stt.appId', label: 'AppID', type: 'text' },
       { key: 'stt.apiKey', label: 'API Key', type: 'password' },
       { key: 'stt.apiSecret', label: 'API Secret', type: 'password' },
       { key: 'stt.language', label: '识别语言', type: 'select', options: ['中文', '英文', '日文', '韩文'], defaultValue: '中文' },
-      { key: 'audio.noiseReduction', label: '降噪', type: 'toggle' },
     ],
   },
   {
