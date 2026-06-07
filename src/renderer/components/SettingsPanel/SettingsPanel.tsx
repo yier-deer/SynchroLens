@@ -77,7 +77,6 @@ const GROUPS: SettingGroup[] = [
     key: 'translation',
     title: '🌐 翻译服务',
     fields: [
-      { key: 'translation.provider', label: '服务商', type: 'select', options: ['deepseek', 'openai'] },
       { key: 'translation.apiEndpoint', label: 'API 地址', type: 'text', defaultValue: 'https://api.deepseek.com' },
       { key: 'translation.apiKey', label: 'API Key', type: 'password' },
       { key: 'translation.fetchModels', label: '获取模型', type: 'button' },
