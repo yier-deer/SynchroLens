@@ -56,6 +56,8 @@ export function MainWindow() {
   const [showSplash, setShowSplash] = useState(true);
   const [activeView, setActiveView] = useState<ViewType>('notes');
   const [selectedNote, setSelectedNote] = useState<NoteTreeItem | null>(null);
+  const [lastNotePath, setLastNotePath] = useState<string | null>(null);
+  const [noteSummary, setNoteSummary] = useState('');
   const [summaryVisible, setSummaryVisible] = useState(true);
   const [config, setConfig] = useState<AppConfig>({ ...DEFAULT_CONFIG });
   const ipc = useIPC();
@@ -80,6 +82,7 @@ export function MainWindow() {
 
   const handleNoteSelect = useCallback((note: NoteTreeItem) => {
     setSelectedNote(note);
+    setLastNotePath(note.path);
     setActiveView('notes');
   }, []);
 
@@ -116,6 +119,7 @@ export function MainWindow() {
             onNoteSelect={handleNoteSelect}
             isRecording={isRecording}
             onPrepareRecord={handlePrepareRecord}
+            lastViewedNotePath={lastNotePath}
           />
         </div>
 
@@ -124,6 +128,7 @@ export function MainWindow() {
             <NotesView
               selectedNote={selectedNote}
               onClearSelection={handleClearSelection}
+              onSummaryExtracted={setNoteSummary}
             />
           )}
           {activeView === 'favorites' && <FavoritesView />}
@@ -135,7 +140,7 @@ export function MainWindow() {
           )}
         </div>
 
-        {isNotes && !selectedNote && (
+        {isNotes && (
           <div className="w-[20%] min-w-[220px] border-l border-surface-800/50 bg-surface-900/50 p-4 flex flex-col">
             <div className="flex items-center justify-between mb-4">
               <h3 className="text-sm font-semibold text-surface-300">摘要</h3>
@@ -147,8 +152,8 @@ export function MainWindow() {
               </button>
             </div>
             {summaryVisible && (
-              session.summary ? (
-                <p className="text-sm text-surface-400 leading-relaxed">{session.summary}</p>
+              (session.summary || noteSummary) ? (
+                <p className="text-sm text-surface-400 leading-relaxed">{noteSummary || session.summary}</p>
               ) : (
                 <p className="text-sm text-surface-500 text-center mt-8">暂无摘要内容</p>
               )
