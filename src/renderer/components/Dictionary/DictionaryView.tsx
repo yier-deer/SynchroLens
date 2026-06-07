@@ -150,12 +150,14 @@ function PersonalDict(): JSX.Element {
 
   const handleDelete = async () => {
     const ids = Array.from(selectedIds);
-    for (const id of ids) {
-      await window.synchrolens.removeDictionaryEntry('personal', id);
+    try {
+      await Promise.all(ids.map(id => window.synchrolens.removeDictionaryEntry('personal', id)));
+      setSelectedIds(new Set());
+      loadEntries();
+      showToast('已删除选中项');
+    } catch {
+      showToast('删除失败', 'error');
     }
-    setSelectedIds(new Set());
-    loadEntries();
-    showToast('已删除选中项');
   };
 
   return (
