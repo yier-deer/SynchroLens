@@ -90,35 +90,53 @@ export class AudioCapture {
             d.toLowerCase().includes('混音') ||
             d.toLowerCase().includes('loopback') ||
             d.toLowerCase().includes('what u hear') ||
-            d.toLowerCase().includes('wave out'),
+            d.toLowerCase().includes('wave out') ||
+            d.toLowerCase().includes('cable'),
         );
 
-        let audioDevice: string | null = null;
         if (loopbackCandidates.length > 0) {
-          audioDevice = loopbackCandidates[0];
+          const audioDevice = loopbackCandidates[0];
           this.l.info('找到回环设备', { device: audioDevice });
-        } else {
-          this.l.warn('未找到 Stereo Mix 设备，请在 Windows 声音设置中启用 Stereo Mix（立体声混音）');
-          this.l.warn('尝试使用默认 dshow 音频设备');
+
+          const args = ['-f', 'dshow', '-i', `audio=${audioDevice}`, '-f', 's16le', '-acodec', 'pcm_s16le', '-ar', '16000', '-ac', '1', 'pipe:1'];
+          this.recordProcess = spawn('ffmpeg', args, { stdio: ['ignore', 'pipe', 'pipe'] });
+
+          // 等待300ms检查进程是否存活
+          await new Promise<void>((resolve, reject) => {
+            const timeout = setTimeout(() => {
+              if (this.recordProcess && this.recordProcess.exitCode === null) {
+                resolve();
+              } else {
+                reject(new Error('ffmpeg 进程启动后立即退出'));
+              }
+            }, 300);
+            this.recordProcess!.once('exit', (code) => {
+              clearTimeout(timeout);
+              reject(new Error(`ffmpeg 进程异常退出，code=${code}。请确认 Stereo Mix 已在 Windows 声音设置中启用`));
+            });
+            this.recordProcess!.once('error', (err) => {
+              clearTimeout(timeout);
+              reject(err);
+            });
+          });
+
+          this.setupProcessListeners('ffmpeg dshow');
+          this.emitter.emit(EVENTS.START);
+          this.l.info('系统音频采集已启动 (ffmpeg dshow)');
+          return;
         }
 
-        const args = audioDevice
-          ? ['-f', 'dshow', '-i', `audio=${audioDevice}`, '-f', 's16le', '-acodec', 'pcm_s16le', '-ar', '16000', '-ac', '1', 'pipe:1']
-          : ['-f', 'dshow', '-i', 'audio=default', '-f', 's16le', '-acodec', 'pcm_s16le', '-ar', '16000', '-ac', '1', 'pipe:1'];
-
-        this.recordProcess = spawn('ffmpeg', args, { stdio: ['ignore', 'pipe', 'pipe'] });
-        this.setupProcessListeners('ffmpeg dshow');
-        this.emitter.emit(EVENTS.START);
-        this.l.info('系统音频采集已启动 (ffmpeg dshow)');
-        return;
+        this.l.warn('未找到系统音频回环设备，设备列表:', { devices });
+        this.l.warn('请在 Windows 声音设置 → 录制设备 → 右键启用 Stereo Mix（立体声混音），或安装 VB-Cable');
       } catch (ffmpegErr) {
-        this.l.warn('ffmpeg dshow 采集失败，回退到麦克风', { error: (ffmpegErr as Error).message });
+        this.l.warn('ffmpeg dshow 采集失败', { error: (ffmpegErr as Error).message });
       }
+    } else {
+      this.l.warn('ffmpeg 未安装，无法进行系统音频回环采集');
     }
 
-    // ffmpeg 不可用：尝试 node-record-lpcm16（仅当 Stereo Mix 设为默认输入设备时有效）
-    this.l.warn('ffmpeg 不可用，系统音频采集需在 Windows 声音设置中启用 Stereo Mix（立体声混音）作为默认录音设备');
-    this.l.warn('当前将尝试通过麦克风采集，如需系统音频，请安装 ffmpeg 并启用 Stereo Mix');
+    // 回退到麦克风
+    this.l.warn('系统音频不可用，回退到麦克风采集（只能录到麦克风声音，不能录系统播放的音频）');
     await this.startMicrophone(undefined);
   }
 

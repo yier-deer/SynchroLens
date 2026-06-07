@@ -93,10 +93,10 @@ const GROUPS: SettingGroup[] = [
     key: 'vector',
     title: '🧠 向量模型',
     fields: [
-      { key: 'vector.apiEndpoint', label: 'API 地址', type: 'text', defaultValue: 'https://api.openai.com/v1' },
+      { key: 'vector.apiEndpoint', label: 'API 地址', type: 'text', defaultValue: 'https://ark.cn-beijing.volces.com/api/v3' },
       { key: 'vector.apiKey', label: 'Embedding Key', type: 'password' },
       { key: 'vector.fetchModels', label: '获取模型', type: 'button' },
-      { key: 'vector.model', label: 'Embedding 模型', type: 'select', options: [], defaultValue: 'text-embedding-3-small' },
+      { key: 'vector.model', label: 'Embedding 模型', type: 'select', options: [], defaultValue: 'doubao-embedding' },
       { key: 'vector.test', label: '测试连接', type: 'testButton', service: 'vector' },
     ],
   },

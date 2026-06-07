@@ -427,9 +427,9 @@ export function registerAppLifecycle(): void {
     if (savedConfig.translation?.apiKey) process.env.DEEPSEEK_API_KEY = savedConfig.translation.apiKey;
 
     embeddingClient = new EmbeddingClient({
-      apiKey: savedConfig.vector?.apiKey || process.env.DEEPSEEK_API_KEY || '',
-      apiEndpoint: savedConfig.vector?.apiEndpoint || 'https://api.openai.com/v1',
-      model: savedConfig.vector?.model || 'text-embedding-3-small',
+      apiKey: savedConfig.vector?.apiKey || '',
+      apiEndpoint: savedConfig.vector?.apiEndpoint || 'https://ark.cn-beijing.volces.com/api/v3',
+      model: savedConfig.vector?.model || 'doubao-embedding',
     });
     if (savedConfig.stt?.apiKey) process.env.XFYUN_API_KEY = savedConfig.stt.apiKey;
     if (savedConfig.stt?.apiSecret) process.env.XFYUN_API_SECRET = savedConfig.stt.apiSecret;

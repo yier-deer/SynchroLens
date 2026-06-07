@@ -9,12 +9,27 @@ import type { TranslationResult } from '@shared/types';
 
 /** 字幕行样式常量 */
 const STYLE = {
+  dragHandle: {
+    width: '100%',
+    height: '20px',
+    WebkitAppRegion: 'drag' as const,
+    cursor: 'move',
+    display: 'flex',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  dragDot: {
+    width: '30px',
+    height: '3px',
+    borderRadius: '2px',
+    background: 'rgba(255,255,255,0.25)',
+  },
   container: {
-    padding: '12px 24px',
-    background: 'rgba(0, 0, 0, 0.35)',
+    padding: '4px 24px 12px 24px',
+    background: 'rgba(0, 0, 0, 0.4)',
     borderRadius: '8px',
     maxWidth: '800px',
-    minHeight: '60px',
+    minHeight: '48px',
   },
   source: {
     fontSize: '14px',
@@ -97,6 +112,10 @@ export function SubtitleOverlay({ currentTranslation, confirmedTranslations, sho
   return (
     <div style={STYLE.container as React.CSSProperties}>
       <style>{cursorKeyframes}</style>
+
+      <div style={STYLE.dragHandle as React.CSSProperties}>
+        <div style={STYLE.dragDot} />
+      </div>
 
       {/* 已确认句（向上滚动，半透明） */}
       {visibleHistory.length > 0
