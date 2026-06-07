@@ -87,6 +87,8 @@ export class AudioCapture {
   private running = false;
   private currentSource: 'system' | 'microphone' = 'system';
   private emitter = new EventEmitter();
+  /** 音频 chunk 计数器（诊断用） */
+  private chunkCount = 0;
 
   async start(source: 'system' | 'microphone', deviceId?: string): Promise<void> {
     if (this.running) this.stop();
@@ -138,7 +140,7 @@ export class AudioCapture {
   /** 用 ffmpeg dshow 启动指定设备 */
   private async launchFfmpeg(ffmpegPath: string, device: string | null, label: string): Promise<void> {
     const input = device ? `audio=${device}` : 'audio=default';
-    const args = ['-f', 'dshow', '-i', input, '-f', 's16le', '-acodec', 'pcm_s16le', '-ar', '16000', '-ac', '1', 'pipe:1'];
+    const args = ['-f', 'dshow', '-rtbufsize', '2M', '-i', input, '-f', 's16le', '-acodec', 'pcm_s16le', '-ar', '16000', '-ac', '1', 'pipe:1'];
     this.recordProcess = spawn(ffmpegPath, args, { stdio: ['ignore', 'pipe', 'pipe'] });
 
     // 等 300ms 确认进程存活
@@ -177,6 +179,11 @@ export class AudioCapture {
       this.emitter.emit(EVENTS.DATA, int16Buffer);
       for (const cb of this.dataCallbacks) {
         try { cb(int16Buffer); } catch { /* ignore */ }
+      }
+      // 每 50 个 chunk 输出一条 info 日志确认管线活着
+      this.chunkCount++;
+      if (this.chunkCount % 50 === 0) {
+        this.l.info('音频数据管线', { chunks: this.chunkCount, bytes: chunk.length });
       }
     });
 

@@ -60,6 +60,12 @@ export class STTClient {
   private currentSentenceId = '';
   /** 当前识别语言，默认中文；SessionManager.updateConfig 会更新为配置值 */
   public language = 'zh_cn';
+  /** 音频帧计数（用于诊断管线是否通畅） */
+  private audioFrameCount = 0;
+  /** 被丢弃的帧计数（连接未就绪时） */
+  private droppedFrameCount = 0;
+  /** STT 消息计数 */
+  private messageCount = 0;
   private l = createLogger('STTClient');
 
   /**
@@ -70,7 +76,7 @@ export class STTClient {
     this.config = config;
     this.reconnectCount = 0;
     this.currentSentenceId = generateSentenceId();
-    this.l.info('STT 连接中', { url: STT_CONSTANTS.WS_URL });
+    this.l.info('STT 连接中', { url: STT_CONSTANTS.WS_URL, language: this.language });
     this.doConnect();
   }
 
@@ -141,9 +147,11 @@ export class STTClient {
   /** 解析 WebSocket 消息 */
   private handleMessage(data: WebSocket.Data): void {
     try {
+      this.messageCount++;
       const msg = JSON.parse(data.toString());
       if (msg.code !== 0) {
         this.notifyError(new Error(`讯飞 STT 错误: code=${msg.code}, message=${msg.message}`));
+        this.l.error('STT 返回错误', { code: msg.code, message: msg.message, totalMessages: this.messageCount });
         return;
       }
 
@@ -165,8 +173,12 @@ export class STTClient {
         const text = words.join('');
         const isFinal = result.ls === true || msg.data.isEnd === 1;
 
+        // 任何有文本的结果都记录
+        if (text) {
+          this.l.info('STT 结果', { text, isFinal, totalMessages: this.messageCount, audioFrames: this.audioFrameCount });
+        }
+
         if (isFinal) {
-          this.l.info('STT 句结束', { sentenceId: this.currentSentenceId, text });
           this.currentSentenceId = generateSentenceId();
         }
 
@@ -188,9 +200,19 @@ export class STTClient {
    * @param pcmChunk - PCM 音频数据（Int16 格式，16kHz 单声道）
    */
   sendAudio(pcmChunk: Int16Array): void {
-    if (!this.ws || !this.connected || this.ws.readyState !== WebSocket.OPEN) return;
+    if (!this.ws || !this.connected || this.ws.readyState !== WebSocket.OPEN) {
+      this.droppedFrameCount++;
+      if (this.droppedFrameCount === 1 || this.droppedFrameCount % 100 === 0) {
+        this.l.warn('音频帧被丢弃（STT 未就绪）', { dropped: this.droppedFrameCount, connected: this.connected, readyState: this.ws?.readyState });
+      }
+      return;
+    }
 
-    this.l.debug('发送音频帧', { frameSize: pcmChunk.length });
+    this.audioFrameCount++;
+    // 每50帧记录一次，确认管线通畅
+    if (this.audioFrameCount === 1 || this.audioFrameCount % 50 === 0) {
+      this.l.info('音频帧发送', { count: this.audioFrameCount, frameSize: pcmChunk.length });
+    }
 
     const base64Audio = Buffer.from(pcmChunk.buffer).toString('base64');
 
