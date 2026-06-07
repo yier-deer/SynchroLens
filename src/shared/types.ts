@@ -68,6 +68,7 @@ export interface AppConfig {
   general: GeneralConfig;
   stt: STTConfig;
   translation: TranslationConfig;
+  vector: VectorConfig;
   note: NoteConfig;
   audio: AudioConfig;
 }
@@ -118,6 +119,13 @@ export interface TranslationConfig {
   contextCorrection: boolean;
   /** 上下文窗口大小（句子数） */
   contextWindowSize: number;
+}
+
+/** 向量模型设置 */
+export interface VectorConfig {
+  apiEndpoint?: string;
+  apiKey?: string;
+  model?: string;
 }
 
 /** 笔记设置 */
@@ -422,6 +430,12 @@ export const DEFAULT_CONFIG: AppConfig = {
     targetLanguage: 'zh-CN',
     contextCorrection: true,
     contextWindowSize: 5,
+    apiEndpoint: 'https://api.deepseek.com',
+    model: 'deepseek-v4-flash',
+  },
+  vector: {
+    apiEndpoint: 'https://api.deepseek.com',
+    model: 'deepseek-embedding',
   },
   note: {
     saveDir: '',
