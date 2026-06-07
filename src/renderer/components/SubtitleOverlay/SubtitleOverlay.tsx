@@ -63,13 +63,15 @@ interface SubtitleOverlayProps {
   currentTranslation: TranslationResult | null;
   /** 已确认的翻译结果列表 */
   confirmedTranslations: TranslationResult[];
+  /** 是否显示双语（原文+译文），false 只显示译文 */
+  showBilingual?: boolean;
 }
 
 /**
  * 字幕渲染组件
  * 当前句显示在底部带光标，已确认句向上滚动
  */
-export function SubtitleOverlay({ currentTranslation, confirmedTranslations }: SubtitleOverlayProps) {
+export function SubtitleOverlay({ currentTranslation, confirmedTranslations, showBilingual = true }: SubtitleOverlayProps) {
   const [prevTranslation, setPrevTranslation] = useState<string | null>(null);
   const [correcting, setCorrecting] = useState(false);
 
@@ -100,7 +102,7 @@ export function SubtitleOverlay({ currentTranslation, confirmedTranslations }: S
       {visibleHistory.length > 0
         ? visibleHistory.map((item) => (
             <div key={item.sentenceId} style={STYLE.historyItem}>
-              <div style={STYLE.source}>{item.original}</div>
+              {showBilingual && <div style={STYLE.source}>{item.original}</div>}
               <div style={STYLE.target}>{item.translation}</div>
             </div>
           ))
@@ -109,7 +111,7 @@ export function SubtitleOverlay({ currentTranslation, confirmedTranslations }: S
       {/* 当前句（流式输出 + 光标） */}
       {hasCurrent ? (
         <div style={correcting ? STYLE.correction : undefined}>
-          <div style={STYLE.source}>{currentTranslation.original || '...'}</div>
+          {showBilingual && <div style={STYLE.source}>{currentTranslation.original || '...'}</div>}
           <div style={STYLE.target}>
             {currentTranslation.translation}
             {currentTranslation.isFinal ? null : <span style={STYLE.cursor} />}
