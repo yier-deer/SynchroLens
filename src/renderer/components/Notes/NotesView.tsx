@@ -8,9 +8,11 @@ import { useToast } from '../common/Toast';
 interface NotesViewProps {
   selectedNote: NoteTreeItem | null;
   onClearSelection: () => void;
+  /** 摘要提取回调（来自 HTML 注释标记） */
+  onSummaryExtracted?: (summary: string) => void;
 }
 
-export function NotesView({ selectedNote, onClearSelection }: NotesViewProps): JSX.Element {
+export function NotesView({ selectedNote, onClearSelection, onSummaryExtracted }: NotesViewProps): JSX.Element {
   const [sessionState, setSessionState] = useState<'idle' | 'running' | 'stopped'>('idle');
   const [sentences, setSentences] = useState<TranslationResult[]>([]);
   const [currentSentence, setCurrentSentence] = useState<TranslationResult | null>(null);
@@ -58,7 +60,16 @@ export function NotesView({ selectedNote, onClearSelection }: NotesViewProps): J
   useEffect(() => {
     if (selectedNote) {
       window.synchrolens.readNote(selectedNote.path).then(content => {
-        setNoteContent(content);
+        // 提取摘要（HTML注释标记）并从显示内容中移除
+        const summaryMatch = content.match(/<!--\s*summary\s*-->([\s\S]*?)<!--\s*\/summary\s*-->/);
+        if (summaryMatch) {
+          const extracted = summaryMatch[1].trim();
+          onSummaryExtracted?.(extracted);
+          setNoteContent(content.replace(/<!--\s*summary\s*-->[\s\S]*?<!--\s*\/summary\s*-->/g, '').trim());
+        } else {
+          onSummaryExtracted?.('');
+          setNoteContent(content);
+        }
       });
     }
   }, [selectedNote]);

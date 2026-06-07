@@ -86,7 +86,8 @@ export class NoteWriter {
    * @param summary - 摘要内容
    */
   async appendSummary(filePath: string, summary: string): Promise<void> {
-    const content = `\n## 📊 摘要\n\n${summary}\n`;
+    // HTML 注释标记包裹，前端提取后阅读区不渲染
+    const content = `\n<!-- summary -->\n${summary}\n<!-- /summary -->\n`;
     await this.retryWrite(filePath, content, true);
     this.l.info('摘要已写入笔记', { filePath });
   }
