@@ -37,8 +37,8 @@ function SettingsWithActions({ config, onSave }: { config: AppConfig; onSave: (p
     }
   }, [showToast]);
 
-  const handleSaveSettings = useCallback(() => {
-    onSave({});
+  const handleSaveSettings = useCallback((newConfig: AppConfig) => {
+    onSave(newConfig);
     showToast('设置已保存');
   }, [onSave, showToast]);
 
