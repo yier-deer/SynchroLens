@@ -5,9 +5,10 @@ import { useToast } from '../common/Toast';
 
 interface FavoritesViewProps {
   onNavigateToNote?: (notePath: string) => void;
+  cardStyle?: string;
 }
 
-export function FavoritesView({ onNavigateToNote }: FavoritesViewProps): JSX.Element {
+export function FavoritesView({ onNavigateToNote, cardStyle = '暗夜蓝' }: FavoritesViewProps): JSX.Element {
   const [favorites, setFavorites] = useState<Favorite[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
   const [isManageMode, setIsManageMode] = useState(false);
@@ -130,7 +131,9 @@ export function FavoritesView({ onNavigateToNote }: FavoritesViewProps): JSX.Ele
                 key={favorite.id}
                 className={`glass-card p-4 transition-all duration-200 ${
                   isManageMode ? 'cursor-pointer' : ''
-                } ${selectedIds.has(favorite.id) ? 'border-primary-500/30 bg-primary-500/5' : ''}`}
+                } ${selectedIds.has(favorite.id) ? 'border-primary-500/30 bg-primary-500/5' : ''} ${
+                  cardStyle === '暗夜蓝' ? 'fav-card-nightblue' : cardStyle === '深空灰' ? 'fav-card-spacegray' : 'fav-card-forestgreen'
+                }`}
                 onClick={() => isManageMode && toggleSelection(favorite.id)}
               >
                 <div className="flex items-start gap-3">

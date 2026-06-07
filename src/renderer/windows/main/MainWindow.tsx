@@ -159,7 +159,7 @@ export function MainWindow() {
               onSummaryExtracted={setNoteSummary}
             />
           )}
-          {activeView === 'favorites' && <FavoritesView onNavigateToNote={(notePath) => {
+          {activeView === 'favorites' && <FavoritesView cardStyle={config.general?.cardStyle || '暗夜蓝'} onNavigateToNote={(notePath) => {
             const findAndSelect = async () => {
               try {
                 const tree = await window.synchrolens.listNotes() as NoteTreeItem[];

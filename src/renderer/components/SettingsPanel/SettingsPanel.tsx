@@ -118,7 +118,7 @@ const GROUPS: SettingGroup[] = [
     key: 'favorite',
     title: '⭐ 收藏设置',
     fields: [
-      { key: 'general.theme', label: '卡片风格', type: 'select', options: ['暗夜蓝', '深空灰', '墨绿'] },
+      { key: 'general.cardStyle', label: '卡片风格', type: 'select', options: ['暗夜蓝', '深空灰', '墨绿'] },
     ],
   },
   {
