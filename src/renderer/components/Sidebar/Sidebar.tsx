@@ -10,9 +10,10 @@ interface SidebarProps {
   onNoteSelect: (note: NoteTreeItem) => void;
   isRecording: boolean;
   onPrepareRecord: () => void;
+  lastViewedNotePath?: string | null;
 }
 
-export function Sidebar({ activeView, onViewChange, onNoteSelect, isRecording, onPrepareRecord }: SidebarProps): JSX.Element {
+export function Sidebar({ activeView, onViewChange, onNoteSelect, isRecording, onPrepareRecord, lastViewedNotePath }: SidebarProps): JSX.Element {
   const [noteTree, setNoteTree] = useState<NoteTreeItem[]>([]);
   const [expandedDirs, setExpandedDirs] = useState<Set<string>>(new Set());
 
@@ -66,7 +67,25 @@ export function Sidebar({ activeView, onViewChange, onNoteSelect, isRecording, o
         {menuItems.map(item => (
           <button
             key={item.id}
-            onClick={() => onViewChange(item.id)}
+            onClick={() => {
+              // 笔记按钮三种状态行为
+              if (item.id === 'notes') {
+                if (isRecording) {
+                  onViewChange('notes');
+                } else if (lastViewedNotePath && noteTree.length > 0) {
+                  const findNote = (items: NoteTreeItem[]): NoteTreeItem | null => {
+                    for (const it of items) {
+                      if (it.type === 'file' && it.path === lastViewedNotePath) return it;
+                      if (it.children) { const f = findNote(it.children); if (f) return f; }
+                    }
+                    return null;
+                  };
+                  const lastNote = findNote(noteTree);
+                  if (lastNote) { onNoteSelect(lastNote); return; }
+                }
+              }
+              onViewChange(item.id);
+            }}
             className={`sidebar-item w-full ${activeView === item.id ? 'active' : ''}`}
           >
             {item.icon}
