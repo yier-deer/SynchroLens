@@ -43,14 +43,19 @@ function FileDict({ type }: { type: 'language' | 'domain' }): JSX.Element {
   const { showToast } = useToast();
 
   const handleLoadFile = async () => {
-    const newFile = {
-      name: `术语表-${files.length + 1}.csv`,
-      path: `/dict/${type}-${Date.now()}.csv`,
-      count: type === 'language' ? 128 : 64,
-      enabled: true
-    };
-    setFiles(prev => [...prev, newFile]);
-    showToast('词典文件已加载');
+    try {
+      const filePath = await window.synchrolens.selectFile([
+        { name: '词典文件', extensions: ['json', 'csv', 'txt'] },
+      ]);
+      if (!filePath) return;
+      await window.synchrolens.loadDictionaryFile(type, filePath);
+      const entries = await window.synchrolens.getDictionaryEntries(type) as unknown[];
+      const fileName = filePath.replace(/\\/g, '/').split('/').pop() || filePath;
+      setFiles(prev => [...prev, { name: fileName, path: filePath, count: entries.length, enabled: true }]);
+      showToast(`词典文件已加载 (${entries.length} 条)`);
+    } catch {
+      showToast('词典文件加载失败', 'error');
+    }
   };
 
   const toggleFile = (index: number) => {

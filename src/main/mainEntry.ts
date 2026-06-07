@@ -278,6 +278,14 @@ function setupIpcHandlers(): void {
     });
     return result.canceled ? null : result.filePaths[0];
   });
+  ipcMain.handle('dialog:select-file', async (_e, payload: { filters?: Array<{ name: string; extensions: string[] }> }) => {
+    const result = await dialog.showOpenDialog({
+      properties: ['openFile'],
+      title: '选择词典文件',
+      filters: payload.filters || [{ name: '词典文件', extensions: ['json', 'csv', 'txt'] }],
+    });
+    return result.canceled ? null : result.filePaths[0];
+  });
   ipcMain.handle(IPC_CHANNELS.NOTES_LIST, (_e, payload: { dirPath?: string }) => noteReader!.listNotes(payload?.dirPath));
   ipcMain.handle(IPC_CHANNELS.NOTES_READ, (_e, payload: { filePath: string }) => noteReader!.readNote(payload.filePath));
   ipcMain.handle(IPC_CHANNELS.NOTES_EXPORT_ALL, (_e, payload: { savePath: string }) => {
