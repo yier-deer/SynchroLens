@@ -221,7 +221,7 @@ export function SettingsPanel({ config, onSave, onExportNotes, onClearData }: Se
   const [modelsLoading, setModelsLoading] = useState(false);
 
   const fetchModels = useCallback(async (endpointKey: string, target: 'translate' | 'embedding') => {
-    const baseUrl = (getValue(draftConfig, endpointKey) as string) || 'https://api.deepseek.com/v1';
+    const baseUrl = (getValue(draftConfig, endpointKey) as string) || 'https://api.deepseek.com';
     setModelsLoading(true);
     try {
       const resp = await fetch(`${baseUrl}/models`, {

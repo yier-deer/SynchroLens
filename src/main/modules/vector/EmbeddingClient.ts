@@ -26,13 +26,14 @@ export class EmbeddingClient {
   setApiKey(key: string): void { this.apiKey = key; }
   setModel(model: string): void { this.model = model; }
   setApiEndpoint(endpoint: string): void { this.baseUrl = endpoint; }
+  get hasApiKey(): boolean { return !!this.apiKey; }
 
   /** 批量文本向量化 */
   async embedTexts(texts: string[]): Promise<number[][]> {
     if (texts.length === 0) return [];
     this.l.info('开始向量化', { count: texts.length });
     try {
-      const response = await fetch(`${this.baseUrl}/v1/embeddings`, {
+      const response = await fetch(`${this.baseUrl}/embeddings`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
