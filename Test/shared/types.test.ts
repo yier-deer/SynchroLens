@@ -4,6 +4,9 @@ import {
   Correction,
   Session,
   SessionState,
+  KnowledgeSourceType,
+  KnowledgeHit,
+  TranslationConstraint,
   DeviceInfo,
   isSTTResult,
   isTranslationResult,
@@ -15,6 +18,58 @@ import {
 } from '../../src/shared/types';
 
 describe('types 类型定义', () => {
+  describe('KnowledgeHit 知识命中类型', () => {
+    it('应该冻结第一批知识来源类型', () => {
+      const sourceTypes: KnowledgeSourceType[] = [
+        'language-dictionary',
+        'domain-dictionary',
+        'personal-dictionary',
+        'translation-memory',
+      ];
+
+      expect(sourceTypes).toEqual([
+        'language-dictionary',
+        'domain-dictionary',
+        'personal-dictionary',
+        'translation-memory',
+      ]);
+    });
+
+    it('应该表达知识命中的来源、分数、优先级和消费方', () => {
+      const hit: KnowledgeHit = {
+        id: 'personal:similar:entry-1',
+        query: 'latency',
+        source: 'latency',
+        target: '时延',
+        sourceType: 'translation-memory',
+        matchType: 'similar',
+        priority: 3,
+        score: 0.92,
+        entryId: 'entry-1',
+        notePath: 'notes/session.md',
+        consumers: ['translation-constraint', 'enhancement-recommendation'],
+      };
+
+      expect(hit.sourceType).toBe('translation-memory');
+      expect(hit.score).toBe(0.92);
+      expect(hit.consumers).toContain('translation-constraint');
+    });
+
+    it('应该继续允许 TranslationConstraint.score 承载相似检索分数', () => {
+      const constraint: TranslationConstraint = {
+        source: 'latency',
+        target: '时延',
+        sourceType: 'personal',
+        priority: 3,
+        matchType: 'similar',
+        enforceMode: 'sentence',
+        score: 0.87,
+      };
+
+      expect(constraint.score).toBe(0.87);
+    });
+  });
+
   describe('isSTTResult 类型守卫', () => {
     it('应该对合法的 STTResult 返回 true', () => {
       const valid: STTResult = {
@@ -201,11 +256,20 @@ describe('types 类型定义', () => {
   });
 
   describe('SessionState 值约束', () => {
-    it('应该只包含四种合法状态', () => {
-      const validStates: SessionState[] = ['idle', 'running', 'paused', 'stopped'];
-      expect(validStates).toHaveLength(4);
+    it('应该包含当前主链路使用的八种合法状态', () => {
+      const validStates: SessionState[] = [
+        'idle',
+        'running',
+        'listening',
+        'recognizing',
+        'reconnecting',
+        'paused',
+        'stopped',
+        'error',
+      ];
+      expect(validStates).toHaveLength(8);
       const unique = new Set(validStates);
-      expect(unique.size).toBe(4);
+      expect(unique.size).toBe(8);
     });
   });
 
@@ -223,15 +287,38 @@ describe('types 类型定义', () => {
     });
 
     it('应该包含 stt 默认配置', () => {
-      expect(DEFAULT_CONFIG.stt.provider).toBe('xfyun');
+      expect(DEFAULT_CONFIG.stt.provider).toBe('xfyun-rtasr');
       expect(DEFAULT_CONFIG.stt.language).toBe('zh_cn');
     });
 
     it('应该包含 translation 默认配置', () => {
-      expect(DEFAULT_CONFIG.translation.provider).toBe('deepseek');
+      expect(DEFAULT_CONFIG.stt.provider).toBe('xfyun-rtasr');
+    });
+
+    it('uses XFYun RTASR as the default realtime STT provider', () => {
+      expect(DEFAULT_CONFIG.stt.provider).toBe('xfyun-rtasr');
+    });
+
+    it('搴旇鍖呭惈 translation 榛樿閰嶇疆', () => {
+      expect(DEFAULT_CONFIG.translation.provider).toBe('tencent-tmt');
       expect(DEFAULT_CONFIG.translation.targetLanguage).toBe('zh-CN');
-      expect(DEFAULT_CONFIG.translation.contextCorrection).toBe(true);
+      expect(DEFAULT_CONFIG.translation.contextCorrection).toBe(false);
       expect(DEFAULT_CONFIG.translation.contextWindowSize).toBe(5);
+      expect(DEFAULT_CONFIG.translation.apiEndpoint).toBe('http://127.0.0.1:8765');
+      expect(DEFAULT_CONFIG.translation.model).toBe('tencent-tmt');
+      expect(DEFAULT_CONFIG.translation.tencent).toEqual({
+        enabled: true,
+        region: 'ap-guangzhou',
+        projectId: 0,
+        sourceLanguage: 'auto',
+        secretKeySaved: false,
+      });
+    });
+
+    it('应该包含 llm 默认配置', () => {
+      expect(DEFAULT_CONFIG.llm.provider).toBe('deepseek');
+      expect(DEFAULT_CONFIG.llm.apiEndpoint).toBe('https://api.deepseek.com');
+      expect(DEFAULT_CONFIG.llm.model).toBe('deepseek-v4-flash');
     });
 
     it('应该包含 note 默认配置', () => {
@@ -240,6 +327,13 @@ describe('types 类型定义', () => {
       expect(DEFAULT_CONFIG.note.autoSaveInterval).toBe(5000);
       expect(DEFAULT_CONFIG.note.autoSummary).toBe(true);
       expect(DEFAULT_CONFIG.note.summaryThreshold).toBe(20);
+    });
+
+    it('应该包含 enhancement 默认配置', () => {
+      expect(DEFAULT_CONFIG.enhancement.enabled).toBe(false);
+      expect(DEFAULT_CONFIG.enhancement.summaryEnabled).toBe(true);
+      expect(DEFAULT_CONFIG.enhancement.correctionEnabled).toBe(true);
+      expect(DEFAULT_CONFIG.enhancement.recommendationEnabled).toBe(true);
     });
 
     it('应该包含 audio 默认配置', () => {

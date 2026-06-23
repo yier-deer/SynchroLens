@@ -10,6 +10,7 @@ describe('ipcChannels 通道常量', () => {
       expect(IPC_CHANNELS.TRANSLATE_CORRECT).toBe('translate:correct');
       expect(IPC_CHANNELS.NOTE_SAVED).toBe('note:saved');
       expect(IPC_CHANNELS.NOTE_SUMMARY).toBe('note:summary');
+      expect(IPC_CHANNELS.ENHANCEMENT_STATUS).toBe('enhancement:status');
     });
 
     it('应该包含所有 Renderer → Main 通道', () => {
@@ -20,9 +21,9 @@ describe('ipcChannels 通道常量', () => {
       expect(IPC_CHANNELS.SUMMARY_TRIGGER).toBe('summary:trigger');
     });
 
-    it('应该共有 37 个通道', () => {
+    it('应该共有 39 个通道', () => {
       const keys = Object.keys(IPC_CHANNELS);
-      expect(keys).toHaveLength(37);
+      expect(keys).toHaveLength(39);
     });
   });
 
@@ -60,12 +61,12 @@ describe('ipcChannels 通道常量', () => {
     it('IPCChannel 类型应包含所有通道值', () => {
       const allValues = Object.values(IPC_CHANNELS) as string[];
       const channelValues: IPCChannel[] = [...allValues] as IPCChannel[];
-      expect(channelValues).toHaveLength(37);
+      expect(channelValues).toHaveLength(39);
     });
   });
 
   describe('MainToRendererChannel 类型', () => {
-    it('应包含 7 个 Main → Renderer 通道', () => {
+    it('应包含 8 个 Main → Renderer 通道', () => {
       const mainChannels: MainToRendererChannel[] = [
         'stt:partial',
         'stt:sentence',
@@ -74,9 +75,10 @@ describe('ipcChannels 通道常量', () => {
         'translate:correct',
         'note:saved',
         'note:summary',
+        'enhancement:status',
       ];
       const unique = new Set(mainChannels);
-      expect(unique.size).toBe(7);
+      expect(unique.size).toBe(8);
     });
   });
 
