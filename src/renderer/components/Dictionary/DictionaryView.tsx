@@ -1,9 +1,19 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import { Upload, Trash2, ToggleLeft, ToggleRight, BookOpen, Globe, User } from 'lucide-react';
-import type { DictEntry } from '../../../shared/types';
+import type { DictionaryFileInfo, DictType, PersonalDictEntry } from '../../../shared/types';
 import { useToast } from '../common/Toast';
 
 type DictTab = 'language' | 'domain' | 'personal';
+type FileDictType = Exclude<DictType, 'personal'>;
+
+function toDisplayFile(file: DictionaryFileInfo) {
+  return {
+    name: file.name,
+    path: file.filePath,
+    count: file.count,
+    enabled: file.enabled,
+  };
+}
 
 export function DictionaryView(): JSX.Element {
   const [activeTab, setActiveTab] = useState<DictTab>('language');
@@ -17,7 +27,7 @@ export function DictionaryView(): JSX.Element {
   return (
     <div className="h-full flex">
       <div className="w-48 border-r border-surface-800/50 p-3 space-y-1">
-        {tabs.map(tab => (
+        {tabs.map((tab) => (
           <button
             key={tab.id}
             onClick={() => setActiveTab(tab.id)}
@@ -38,9 +48,22 @@ export function DictionaryView(): JSX.Element {
   );
 }
 
-function FileDict({ type }: { type: 'language' | 'domain' }): JSX.Element {
+function FileDict({ type }: { type: FileDictType }): JSX.Element {
   const [files, setFiles] = useState<Array<{ name: string; path: string; count: number; enabled: boolean }>>([]);
   const { showToast } = useToast();
+
+  const loadFiles = useCallback(async () => {
+    try {
+      const data = await window.synchrolens.listDictionaryFiles(type);
+      setFiles(data.map(toDisplayFile));
+    } catch {
+      setFiles([]);
+    }
+  }, [type]);
+
+  useEffect(() => {
+    void loadFiles();
+  }, [loadFiles]);
 
   const handleLoadFile = async () => {
     try {
@@ -48,30 +71,40 @@ function FileDict({ type }: { type: 'language' | 'domain' }): JSX.Element {
         { name: '词典文件', extensions: ['json', 'csv', 'txt'] },
       ]);
       if (!filePath) return;
-      await window.synchrolens.loadDictionaryFile(type, filePath);
-      const entries = await window.synchrolens.getDictionaryEntries(type) as unknown[];
-      const fileName = filePath.replace(/\\/g, '/').split('/').pop() || filePath;
-      setFiles(prev => [...prev, { name: fileName, path: filePath, count: entries.length, enabled: true }]);
-      showToast(`词典文件已加载 (${entries.length} 条)`);
+      const info = await window.synchrolens.loadDictionaryFile(type, filePath);
+      await loadFiles();
+      showToast(`词典文件已加载 (${info.count} 条)`);
     } catch {
       showToast('词典文件加载失败', 'error');
     }
   };
 
-  const toggleFile = (index: number) => {
-    setFiles(prev => prev.map((f, i) => i === index ? { ...f, enabled: !f.enabled } : f));
+  const toggleFile = async (filePath: string, enabled: boolean) => {
+    try {
+      await window.synchrolens.toggleDictionaryFile(type, filePath, enabled);
+      await loadFiles();
+    } catch {
+      showToast('词典状态更新失败', 'error');
+    }
   };
 
-  const removeFile = (index: number) => {
-    setFiles(prev => prev.filter((_, i) => i !== index));
-    showToast('文件已移除');
+  const removeFile = async (filePath: string) => {
+    try {
+      await window.synchrolens.removeDictionaryFile(type, filePath);
+      await loadFiles();
+      showToast('文件已移除');
+    } catch {
+      showToast('文件移除失败', 'error');
+    }
   };
 
   if (files.length === 0) {
     return <EmptyDictState onLoad={handleLoadFile} type={type} />;
   }
 
-  const icon = type === 'language' ? <Globe className="w-5 h-5 text-primary-400" /> : <BookOpen className="w-5 h-5 text-accent-400" />;
+  const icon = type === 'language'
+    ? <Globe className="w-5 h-5 text-primary-400" />
+    : <BookOpen className="w-5 h-5 text-accent-400" />;
   const label = type === 'language' ? '语言词典' : '领域词典';
 
   return (
@@ -83,7 +116,7 @@ function FileDict({ type }: { type: 'language' | 'domain' }): JSX.Element {
         </button>
       </div>
       <div className="flex-1 overflow-y-auto p-4 space-y-3">
-        {files.map((file, index) => (
+        {files.map((file) => (
           <div key={file.path} className="glass-card p-4 flex items-center justify-between">
             <div className="flex items-center gap-3">
               <div className={`w-10 h-10 rounded-lg flex items-center justify-center ${type === 'language' ? 'bg-primary-500/10' : 'bg-accent-500/10'}`}>
@@ -96,7 +129,8 @@ function FileDict({ type }: { type: 'language' | 'domain' }): JSX.Element {
             </div>
             <div className="flex items-center gap-2">
               <button
-                onClick={() => toggleFile(index)}
+                aria-label={`${file.enabled ? '禁用' : '启用'} ${file.name}`}
+                onClick={() => void toggleFile(file.path, !file.enabled)}
                 className={`p-2 rounded-lg transition-all duration-200 ${
                   file.enabled ? 'text-green-400 hover:bg-green-500/10' : 'text-surface-500 hover:bg-surface-700'
                 }`}
@@ -104,7 +138,8 @@ function FileDict({ type }: { type: 'language' | 'domain' }): JSX.Element {
                 {file.enabled ? <ToggleRight className="w-5 h-5" /> : <ToggleLeft className="w-5 h-5" />}
               </button>
               <button
-                onClick={() => removeFile(index)}
+                aria-label={`删除 ${file.name}`}
+                onClick={() => void removeFile(file.path)}
                 className="p-2 rounded-lg text-surface-500 hover:text-red-400 hover:bg-red-500/10 transition-all duration-200"
               >
                 <Trash2 className="w-4 h-4" />
@@ -118,26 +153,26 @@ function FileDict({ type }: { type: 'language' | 'domain' }): JSX.Element {
 }
 
 function PersonalDict(): JSX.Element {
-  const [entries, setEntries] = useState<DictEntry[]>([]);
+  const [entries, setEntries] = useState<PersonalDictEntry[]>([]);
   const [isManageMode, setIsManageMode] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const { showToast } = useToast();
 
-  useEffect(() => {
-    loadEntries();
-  }, []);
-
-  const loadEntries = async () => {
+  const loadEntries = useCallback(async () => {
     try {
       const data = await window.synchrolens.getDictionaryEntries('personal');
-      setEntries(data as DictEntry[]);
+      setEntries(data as PersonalDictEntry[]);
     } catch {
       setEntries([]);
     }
-  };
+  }, []);
+
+  useEffect(() => {
+    void loadEntries();
+  }, [loadEntries]);
 
   const toggleSelection = useCallback((id: string) => {
-    setSelectedIds(prev => {
+    setSelectedIds((prev) => {
       const next = new Set(prev);
       if (next.has(id)) {
         next.delete(id);
@@ -151,9 +186,9 @@ function PersonalDict(): JSX.Element {
   const handleDelete = async () => {
     const ids = Array.from(selectedIds);
     try {
-      await Promise.all(ids.map(id => window.synchrolens.removeDictionaryEntry('personal', id)));
+      await Promise.all(ids.map((id) => window.synchrolens.removeDictionaryEntry('personal', id)));
       setSelectedIds(new Set());
-      loadEntries();
+      await loadEntries();
       showToast('已删除选中项');
     } catch {
       showToast('删除失败', 'error');
@@ -202,7 +237,7 @@ function PersonalDict(): JSX.Element {
                 </tr>
               </thead>
               <tbody className="divide-y divide-surface-800/50">
-                {entries.map(entry => (
+                {entries.map((entry) => (
                   <tr
                     key={entry.id}
                     className={`hover:bg-surface-800/30 transition-colors ${
@@ -226,7 +261,7 @@ function PersonalDict(): JSX.Element {
                     <td className="px-4 py-3 text-surface-200">{entry.source}</td>
                     <td className="px-4 py-3 text-surface-200">{entry.target}</td>
                     <td className="px-4 py-3 text-surface-400 max-w-xs truncate" title={entry.improvement}>
-                      {(entry.improvement || '').length > 30 ? (entry.improvement || '').slice(0, 30) + '...' : (entry.improvement || '-')}
+                      {entry.improvement.length > 30 ? `${entry.improvement.slice(0, 30)}...` : entry.improvement}
                     </td>
                     <td className="px-4 py-3 text-surface-400">{entry.sourceNote || '-'}</td>
                     <td className="px-4 py-3 text-surface-500 text-xs">
@@ -243,9 +278,7 @@ function PersonalDict(): JSX.Element {
       {isManageMode && (
         <div className="p-4 border-t border-surface-800/50 bg-surface-900/80 backdrop-blur-xl">
           <div className="flex items-center justify-between">
-            <span className="text-sm text-surface-400">
-              已选择 {selectedIds.size} 项
-            </span>
+            <span className="text-sm text-surface-400">已选择 {selectedIds.size} 项</span>
             <div className="flex items-center gap-2">
               <button
                 onClick={() => {
@@ -272,7 +305,7 @@ function PersonalDict(): JSX.Element {
   );
 }
 
-function EmptyDictState({ onLoad, type }: { onLoad: () => void; type: 'language' | 'domain' }): JSX.Element {
+function EmptyDictState({ onLoad, type }: { onLoad: () => void; type: FileDictType }): JSX.Element {
   return (
     <div className="h-full flex flex-col items-center justify-center text-center p-8">
       <div className="w-16 h-16 rounded-2xl bg-surface-800/50 flex items-center justify-center mb-4 animate-float">

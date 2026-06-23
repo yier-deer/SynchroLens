@@ -309,5 +309,19 @@ describe('Translator DeepSeek 流式翻译客户端', () => {
       const body = JSON.parse(fetchCall[1].body);
       expect(body.model).toBe('custom-model');
     });
+
+    it('应该在更新 API 端点后命中新 baseUrl', async () => {
+      translator.setApiEndpoint('https://new.api.example/v1');
+      global.fetch = jest.fn().mockResolvedValue(
+        createMockStreamResponse(['data: [DONE]\n\n']),
+      ) as any;
+
+      for await (const token of translator.translate('test', [])) {
+        // consume
+      }
+
+      const fetchCall = (global.fetch as jest.Mock).mock.calls[0];
+      expect(fetchCall[0]).toContain('https://new.api.example/v1');
+    });
   });
 });

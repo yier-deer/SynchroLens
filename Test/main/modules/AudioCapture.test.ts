@@ -1,279 +1,243 @@
-/**
- * AudioCapture 音频采集模块单元测试
- * 测试系统音频和麦克风 PCM 数据采集功能
- */
-
+import { EventEmitter } from 'events';
+import type { spawn } from 'child_process';
 import { AudioCapture } from '../../../src/main/modules/audio/AudioCapture';
 
-/** 创建模拟的 MediaStream */
-function createMockMediaStream(): any {
-  return {
-    getTracks: () => [{ stop: jest.fn() }],
-  };
+type FakeProcess = EventEmitter & {
+  stdout: EventEmitter;
+  stderr: EventEmitter;
+  kill: jest.Mock<boolean, [NodeJS.Signals?]>;
+  exitCode: number | null;
+};
+
+type FakeSpawnCall = [string, string[], { stdio: string[] }];
+
+function createFakeProcess(): FakeProcess {
+  const proc = new EventEmitter() as FakeProcess;
+  proc.stdout = new EventEmitter();
+  proc.stderr = new EventEmitter();
+  proc.exitCode = null;
+  proc.kill = jest.fn(() => {
+    proc.exitCode = 0;
+    setImmediate(() => proc.emit('close', 0));
+    return true;
+  });
+  return proc;
 }
 
-/** 创建模拟的 ScriptProcessorNode */
-function createMockScriptProcessor(bufferSize: number): any {
-  return {
-    bufferSize,
-    onaudioprocess: null as ((event: any) => void) | null,
-    connect: jest.fn(),
-    disconnect: jest.fn(),
-  };
+function createAudioCapture(
+  overrides: Partial<ConstructorParameters<typeof AudioCapture>[0]> = {},
+) {
+  const fakeProcess = createFakeProcess();
+  const spawnProcess = jest.fn<FakeProcess, FakeSpawnCall>(() => fakeProcess);
+  const capture = new AudioCapture({
+    findFfmpeg: () => 'C:\\ffmpeg\\bin\\ffmpeg.exe',
+    getDshowDevices: async () => ['Stereo Mix (Realtek)', 'Microphone Array (Realtek)'],
+    spawnProcess: spawnProcess as unknown as typeof spawn,
+    startupDelayMs: 0,
+    ...overrides,
+  });
+
+  return { capture, fakeProcess, spawnProcess };
 }
 
-/** 创建模拟的 AudioProcessingEvent */
-function createMockAudioEvent(samples: number): any {
-  const channelData = new Float32Array(samples);
-  for (let i = 0; i < samples; i++) {
-    channelData[i] = Math.sin((2 * Math.PI * 440 * i) / 16000);
-  }
-  return {
-    inputBuffer: { getChannelData: () => channelData },
-  };
-}
+describe('AudioCapture ffmpeg/dshow audio capture', () => {
+  it('starts microphone capture through ffmpeg dshow', async () => {
+    const { capture, spawnProcess } = createAudioCapture();
 
-describe('AudioCapture 音频采集模块', () => {
-  let audioCapture: AudioCapture;
-  let mockStream: any;
-  let mockProcessor: any;
-  let navigator: any;
+    await capture.start('microphone');
 
-  beforeEach(() => {
-    mockStream = createMockMediaStream();
-    mockProcessor = createMockScriptProcessor(4096);
+    expect(capture.isRunning).toBe(true);
+    expect(capture.source).toBe('microphone');
+    expect(spawnProcess).toHaveBeenCalledWith(
+      'C:\\ffmpeg\\bin\\ffmpeg.exe',
+      expect.arrayContaining([
+        '-f',
+        'dshow',
+        '-i',
+        'audio=Microphone Array (Realtek)',
+        '-ar',
+        '16000',
+        '-ac',
+        '1',
+        'pipe:1',
+      ]),
+      { stdio: ['ignore', 'pipe', 'pipe'] },
+    );
 
-    navigator = {
-      mediaDevices: {
-        getUserMedia: jest.fn().mockResolvedValue(mockStream),
-        enumerateDevices: jest.fn().mockResolvedValue([
-          { kind: 'audioinput', deviceId: 'dev-001', label: 'Mic 1' },
-          { kind: 'audioinput', deviceId: 'dev-002', label: 'Mic 2' },
-          { kind: 'videoinput', deviceId: 'video-001', label: 'Camera' },
-        ]),
-      },
-    };
-
-    // Mock navigator
-    (global as any).navigator = navigator;
-
-    // Mock AudioContext
-    (global as any).AudioContext = jest.fn().mockImplementation(() => ({
-      sampleRate: 16000,
-      createMediaStreamSource: jest.fn().mockReturnValue({
-        connect: jest.fn(),
-      }),
-      createScriptProcessor: jest.fn().mockReturnValue(mockProcessor),
-      destination: {},
-      close: jest.fn().mockResolvedValue(undefined),
-    }));
-
-    audioCapture = new AudioCapture();
+    capture.stop();
   });
 
-  afterEach(() => {
-    audioCapture.stop();
+  it('prefers loopback device for system capture', async () => {
+    const { capture, spawnProcess } = createAudioCapture();
+
+    await capture.start('system');
+
+    expect(capture.isRunning).toBe(true);
+    expect(capture.source).toBe('system');
+    expect(spawnProcess.mock.calls[0][1]).toContain('audio=Stereo Mix (Realtek)');
+
+    capture.stop();
   });
 
-  describe('start 启动采集', () => {
-    it('应该成功启动麦克风采集并开始输出 PCM 数据', async () => {
-      const dataCallback = jest.fn();
-      audioCapture.onData(dataCallback);
-
-      await audioCapture.start('microphone');
-
-      expect(audioCapture.isRunning).toBe(true);
-      expect(audioCapture.source).toBe('microphone');
-      expect(navigator.mediaDevices.getUserMedia).toHaveBeenCalled();
+  it('falls back to microphone when system loopback is unavailable', async () => {
+    const { capture, spawnProcess } = createAudioCapture({
+      getDshowDevices: async () => ['Microphone Array (Realtek)'],
     });
 
-    it('应该成功启动系统音频采集', async () => {
-      await audioCapture.start('system');
+    await capture.start('system');
 
-      expect(audioCapture.isRunning).toBe(true);
-      expect(audioCapture.source).toBe('system');
-    });
+    expect(capture.isRunning).toBe(true);
+    expect(spawnProcess.mock.calls[0][1]).toContain('audio=Microphone Array (Realtek)');
 
-    it('应该在采集到音频数据时触发 onData 回调', async () => {
-      const dataCallback = jest.fn();
-      audioCapture.onData(dataCallback);
-
-      await audioCapture.start('microphone');
-
-      // 模拟音频处理事件
-      const audioEvent = createMockAudioEvent(4096);
-      mockProcessor.onaudioprocess(audioEvent);
-
-      expect(dataCallback).toHaveBeenCalledTimes(1);
-      const pcmData = dataCallback.mock.calls[0][0] as Int16Array;
-      expect(pcmData).toBeInstanceOf(Int16Array);
-      expect(pcmData.length).toBe(4096);
-    });
-
-    it('应该在启动时触发 EventEmitter 事件', async () => {
-      const startCallback = jest.fn();
-      audioCapture.onStart(startCallback);
-
-      await audioCapture.start('microphone');
-
-      expect(startCallback).toHaveBeenCalledTimes(1);
-    });
+    capture.stop();
   });
 
-  describe('stop 停止采集', () => {
-    it('应该停止采集并释放设备', async () => {
-      const stopCallback = jest.fn();
-      audioCapture.onStop(stopCallback);
+  it('emits Int16 PCM chunks from ffmpeg stdout', async () => {
+    const { capture, fakeProcess } = createAudioCapture();
+    const dataCallback = jest.fn();
+    capture.onData(dataCallback);
 
-      await audioCapture.start('microphone');
-      audioCapture.stop();
+    await capture.start('microphone');
+    fakeProcess.stdout.emit('data', Buffer.from([1, 0, 2, 0, 255, 255]));
 
-      expect(audioCapture.isRunning).toBe(false);
-      expect(stopCallback).toHaveBeenCalledTimes(1);
-    });
+    expect(dataCallback).toHaveBeenCalledTimes(1);
+    expect(dataCallback.mock.calls[0][0]).toBeInstanceOf(Int16Array);
+    expect(Array.from(dataCallback.mock.calls[0][0])).toEqual([1, 2, -1]);
 
-    it('应该停止 MediaStream 的所有轨道', async () => {
-      const stopTrack = jest.fn();
-      const streamWithTrackStop = {
-        getTracks: () => [{ stop: stopTrack }],
-      };
-
-      navigator.mediaDevices.getUserMedia = jest.fn().mockResolvedValue(streamWithTrackStop);
-
-      await audioCapture.start('microphone');
-      audioCapture.stop();
-
-      expect(stopTrack).toHaveBeenCalled();
-    });
-
-    it('应该在停止后不再触发 onData 回调', async () => {
-      const dataCallback = jest.fn();
-      audioCapture.onData(dataCallback);
-
-      await audioCapture.start('microphone');
-      audioCapture.stop();
-
-      // 尝试触发事件，不应被调用
-      const audioEvent = createMockAudioEvent(4096);
-      mockProcessor.onaudioprocess(audioEvent);
-
-      expect(dataCallback).not.toHaveBeenCalled();
-    });
+    capture.stop();
   });
 
-  describe('onData 回调注册', () => {
-    it('应该返回取消注册函数', async () => {
-      const dataCallback = jest.fn();
-      const unsubscribe = audioCapture.onData(dataCallback);
+  it('unsubscribes data callbacks', async () => {
+    const { capture, fakeProcess } = createAudioCapture();
+    const dataCallback = jest.fn();
+    const unsubscribe = capture.onData(dataCallback);
 
-      await audioCapture.start('microphone');
+    await capture.start('microphone');
+    unsubscribe();
+    fakeProcess.stdout.emit('data', Buffer.from([1, 0]));
 
-      unsubscribe();
+    expect(dataCallback).not.toHaveBeenCalled();
 
-      const audioEvent = createMockAudioEvent(4096);
-      mockProcessor.onaudioprocess(audioEvent);
-
-      expect(dataCallback).not.toHaveBeenCalled();
-    });
-
-    it('应该支持多个回调同时注册', async () => {
-      const cb1 = jest.fn();
-      const cb2 = jest.fn();
-
-      audioCapture.onData(cb1);
-      audioCapture.onData(cb2);
-
-      await audioCapture.start('microphone');
-      const audioEvent = createMockAudioEvent(4096);
-      mockProcessor.onaudioprocess(audioEvent);
-
-      expect(cb1).toHaveBeenCalledTimes(1);
-      expect(cb2).toHaveBeenCalledTimes(1);
-    });
+    capture.stop();
   });
 
-  describe('切换音源', () => {
-    it('应该在切换音源时先停止当前采集再启动新采集', async () => {
-      await audioCapture.start('system');
+  it('supports multiple data callbacks', async () => {
+    const { capture, fakeProcess } = createAudioCapture();
+    const firstCallback = jest.fn();
+    const secondCallback = jest.fn();
+    capture.onData(firstCallback);
+    capture.onData(secondCallback);
 
-      const stopSpy = jest.spyOn(audioCapture, 'stop');
-      const getTracksSpy = jest.fn().mockReturnValue([{ stop: jest.fn() }]);
+    await capture.start('microphone');
+    fakeProcess.stdout.emit('data', Buffer.from([3, 0]));
 
-      navigator.mediaDevices.getUserMedia = jest.fn().mockResolvedValue({
-        getTracks: getTracksSpy,
-      });
+    expect(firstCallback).toHaveBeenCalledTimes(1);
+    expect(secondCallback).toHaveBeenCalledTimes(1);
 
-      await audioCapture.start('microphone');
-
-      // 切换音源时应停止旧采集
-      expect(stopSpy).toHaveBeenCalled();
-      expect(audioCapture.source).toBe('microphone');
-    });
+    capture.stop();
   });
 
-  describe('getAvailableDevices 获取设备列表', () => {
-    it('应该返回音频输入设备列表', async () => {
-      const devices = await audioCapture.getAvailableDevices();
+  it('stops capture and kills the ffmpeg process', async () => {
+    const { capture, fakeProcess } = createAudioCapture();
+    const stopCallback = jest.fn();
+    capture.onStop(stopCallback);
 
-      expect(devices).toHaveLength(2);
-      expect(devices[0]).toEqual({ deviceId: 'dev-001', label: 'Mic 1' });
-      expect(devices[1]).toEqual({ deviceId: 'dev-002', label: 'Mic 2' });
-    });
+    await capture.start('microphone');
+    capture.stop();
 
-    it('应该在 enumerateDevices 失败时返回空数组', async () => {
-      navigator.mediaDevices.enumerateDevices = jest.fn().mockRejectedValue(new Error('Not allowed'));
-
-      const devices = await audioCapture.getAvailableDevices();
-
-      expect(devices).toEqual([]);
-    });
+    expect(capture.isRunning).toBe(false);
+    expect(fakeProcess.kill).toHaveBeenCalledWith('SIGTERM');
+    expect(stopCallback).toHaveBeenCalledTimes(1);
   });
 
-  describe('采集失败处理', () => {
-    it('应该在获取媒体设备失败时触发 error 回调', async () => {
-      const errorCallback = jest.fn();
-      audioCapture.onError(errorCallback);
-
-      navigator.mediaDevices.getUserMedia = jest.fn().mockRejectedValue(new Error('Permission denied'));
-
-      try {
-        await audioCapture.start('microphone');
-      } catch {
-        // 预期会抛出异常
-      }
-
-      expect(errorCallback).toHaveBeenCalled();
-      expect(errorCallback.mock.calls[0][0]).toBeInstanceOf(Error);
-      expect(errorCallback.mock.calls[0][0].message).toContain('Permission denied');
-      expect(audioCapture.isRunning).toBe(false);
+  it('switches source by stopping the current ffmpeg process first', async () => {
+    const firstProcess = createFakeProcess();
+    const secondProcess = createFakeProcess();
+    const spawnProcess = jest.fn<FakeProcess, FakeSpawnCall>()
+      .mockReturnValueOnce(firstProcess)
+      .mockReturnValueOnce(secondProcess);
+    const capture = new AudioCapture({
+      findFfmpeg: () => 'C:\\ffmpeg\\bin\\ffmpeg.exe',
+      getDshowDevices: async () => ['Stereo Mix (Realtek)', 'Microphone Array (Realtek)'],
+      spawnProcess: spawnProcess as unknown as typeof spawn,
+      startupDelayMs: 0,
     });
+
+    await capture.start('system');
+    await capture.start('microphone');
+
+    expect(firstProcess.kill).toHaveBeenCalledWith('SIGTERM');
+    expect(capture.source).toBe('microphone');
+    expect(spawnProcess).toHaveBeenCalledTimes(2);
+
+    capture.stop();
   });
 
-  describe('isRunning 状态', () => {
-    it('应该在初始状态为 false', () => {
-      expect(audioCapture.isRunning).toBe(false);
+  it('lists dshow audio devices without touching real hardware in tests', async () => {
+    const { capture } = createAudioCapture({
+      getDshowDevices: async () => ['Mic 1', 'Mic 2'],
     });
 
-    it('应该在启动后为 true', async () => {
-      await audioCapture.start('microphone');
-      expect(audioCapture.isRunning).toBe(true);
-    });
-
-    it('应该在停止后恢复为 false', async () => {
-      await audioCapture.start('microphone');
-      audioCapture.stop();
-      expect(audioCapture.isRunning).toBe(false);
-    });
+    await expect(capture.getAvailableDevices()).resolves.toEqual([
+      { deviceId: 'dshow-0', label: 'Mic 1' },
+      { deviceId: 'dshow-1', label: 'Mic 2' },
+    ]);
   });
 
-  describe('source 属性', () => {
-    it('应该在初始状态为 system', () => {
-      expect(audioCapture.source).toBe('system');
+  it('returns an empty device list when ffmpeg is unavailable', async () => {
+    const { capture } = createAudioCapture({
+      findFfmpeg: () => null,
     });
 
-    it('应该在启动后更新为指定来源', async () => {
-      await audioCapture.start('microphone');
-      expect(audioCapture.source).toBe('microphone');
+    await expect(capture.getAvailableDevices()).resolves.toEqual([]);
+  });
+
+  it('fails start and resets running state when ffmpeg is unavailable', async () => {
+    const { capture } = createAudioCapture({
+      findFfmpeg: () => null,
     });
+
+    await expect(capture.start('microphone')).rejects.toThrow(/ffmpeg/);
+    expect(capture.isRunning).toBe(false);
+  });
+
+  it('emits error and resets running state when ffmpeg process errors', async () => {
+    const fakeProcess = createFakeProcess();
+    const spawnProcess = jest.fn<FakeProcess, FakeSpawnCall>(() => fakeProcess);
+    const capture = new AudioCapture({
+      findFfmpeg: () => 'C:\\ffmpeg\\bin\\ffmpeg.exe',
+      getDshowDevices: async () => ['Microphone Array (Realtek)'],
+      spawnProcess: spawnProcess as unknown as typeof spawn,
+      startupDelayMs: 50,
+    });
+    const errorCallback = jest.fn();
+    capture.onError(errorCallback);
+
+    const startPromise = capture.start('microphone');
+    const error = new Error('ffmpeg failed');
+    setImmediate(() => fakeProcess.emit('error', error));
+
+    await expect(startPromise).rejects.toThrow('ffmpeg failed');
+    expect(errorCallback).toHaveBeenCalledWith(error);
+    expect(capture.isRunning).toBe(false);
+  });
+
+  it('emits start event after ffmpeg startup is confirmed', async () => {
+    const { capture } = createAudioCapture();
+    const startCallback = jest.fn();
+    capture.onStart(startCallback);
+
+    await capture.start('microphone');
+
+    expect(startCallback).toHaveBeenCalledTimes(1);
+
+    capture.stop();
+  });
+
+  it('keeps default source before start', () => {
+    const { capture } = createAudioCapture();
+
+    expect(capture.isRunning).toBe(false);
+    expect(capture.source).toBe('system');
   });
 });

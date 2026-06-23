@@ -13,7 +13,7 @@ export function ControlWindow() {
     if (togglingRef.current) return;
     togglingRef.current = true;
 
-    const isRunning = session.sessionState === 'running';
+    const isRunning = session.sessionState !== 'idle' && session.sessionState !== 'stopped';
     try {
       if (isRunning) {
         await session.stopSession();

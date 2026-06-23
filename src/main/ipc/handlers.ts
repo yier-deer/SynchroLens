@@ -21,13 +21,15 @@ export interface ModuleRegistry {
     getAvailableDevices(): Promise<{ deviceId: string; label: string }[]>;
   };
   sttClient: {
-    connect(config: { appId: string; apiKey: string; apiSecret: string }): void;
+    connect(config: { appId: string; apiKey: string; apiSecret: string; language?: string; provider?: string }): void;
     sendAudio(pcmChunk: Int16Array): void;
     disconnect(): void;
-    onResult(callback: (text: string, isFinal: boolean, sentenceId: string) => void): void;
-    onError(callback: (error: Error) => void): void;
-    onClose(callback: () => void): void;
-    reconnect(): void;
+    onResult(callback: (text: string, isFinal: boolean, sentenceId: string, metadata?: unknown) => void): void;
+    onError?(callback: (error: Error) => void): void;
+    onClose?(callback: () => void): void;
+    onStateChange?(callback: (state: string) => void): void;
+    reconnect?(): void;
+    setLanguage?(language: string): void;
   };
   translator: {
     translate(text: string, context: { original: string; translation: string }[]): AsyncGenerator<string>;
@@ -35,10 +37,9 @@ export interface ModuleRegistry {
     generateSummary(sentences: { sentenceId: string; original: string; translation: string }[]): Promise<string>;
     setApiKey(key: string): void;
   };
-  noteWriter: {
-    createNoteFile(session: { startTime: number; audioSource: string }): string;
-    appendEntry(filePath: string, original: string, translation: string, timestamp: number, corrections?: { from: string; to: string; reason: string; timestamp: number }[]): Promise<void>;
-    appendSummary(filePath: string, summary: string): Promise<void>;
+  noteRepository: {
+    createSessionNote(session: { startTime: number; audioSource: string; id: string; sentences: unknown[] }, saveDir: string): Promise<string>;
+    appendSentence(filePath: string, sentence: { sentenceId: string; text: string; isFinal: boolean; timestamp: number }): Promise<void>;
   };
   correctionDetector: {
     checkConsistency(translations: { sentenceId: string; original: string; translation: string }[]): Promise<{ sentenceId: string; from: string; to: string; reason: string }[]>;

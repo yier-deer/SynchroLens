@@ -1,85 +1,137 @@
 /**
- * SubtitleOverlay 字幕渲染组件单元测试
  * @jest-environment jsdom
  */
 
 import { render, screen } from '@testing-library/react';
 import { SubtitleOverlay } from '../../../../src/renderer/components/SubtitleOverlay/SubtitleOverlay';
-import type { TranslationResult } from '../../../../src/shared/types';
+import type { STTResult } from '../../../../src/shared/types';
 
-/** 创建测试翻译结果 */
-function makeResult(
-  sentenceId: string,
-  original: string,
-  translation: string,
-  isFinal = true,
-): TranslationResult {
-  return { sentenceId, original, translation, isFinal, corrections: [] };
+jest.mock('../../../../src/renderer/components/SubtitleOverlay/useStreamingSubtitleText', () => ({
+  useStreamingSubtitleText: (transcript: { sentenceId: string; text: string } | null) => ({
+    sentenceId: transcript?.sentenceId ?? null,
+    text: transcript?.text ?? '',
+    parts: transcript?.text ? [{ kind: 'stable', text: transcript.text }] : [],
+    isRepairing: false,
+  }),
+}));
+
+function makeResult(sentenceId: string, text: string, isFinal = true): STTResult {
+  return { sentenceId, text, isFinal, timestamp: Date.now() };
 }
 
-describe('SubtitleOverlay 字幕渲染组件', () => {
-  it('应该在无数据时渲染空容器', () => {
+describe('SubtitleOverlay', () => {
+  it('renders an empty container without transcript data', () => {
     const { container } = render(
-      <SubtitleOverlay currentTranslation={null} confirmedTranslations={[]} />,
+      <SubtitleOverlay currentTranscript={null} confirmedTranscripts={[]} sessionState="idle" />,
     );
 
     expect(container.firstChild).toBeTruthy();
-    // 空状态不崩溃
   });
 
-  it('应该渲染当前句流式文本和闪烁光标', () => {
-    const current = makeResult('s1', 'Hello World', '你好', false);
-
-    render(<SubtitleOverlay currentTranslation={current} confirmedTranslations={[]} />);
-
-    expect(screen.getByText('Hello World')).toBeDefined();
-    expect(screen.getByText('你好')).toBeDefined();
-  });
-
-  it('应该在当前句已确认时不显示光标', () => {
-    const current = makeResult('s1', 'Hello', '你好', true);
-
-    render(<SubtitleOverlay currentTranslation={current} confirmedTranslations={[]} />);
-
-    expect(screen.getByText('你好')).toBeDefined();
-    // 光标不应存在
-  });
-
-  it('应该渲染已确认的翻译句子列表', () => {
-    const confirmed = [
-      makeResult('s1', 'First', '第一'),
-      makeResult('s2', 'Second', '第二'),
-    ];
-
-    render(<SubtitleOverlay currentTranslation={null} confirmedTranslations={confirmed} />);
-
-    expect(screen.getByText('First')).toBeDefined();
-    expect(screen.getByText('第一')).toBeDefined();
-    expect(screen.getByText('Second')).toBeDefined();
-    expect(screen.getByText('第二')).toBeDefined();
-  });
-
-  it('应该在超过最大句子数时只显示最近N句', () => {
-    const confirmed = Array.from({ length: 12 }, (_, i) =>
-      makeResult(`s${i}`, `EN ${i}`, `ZH ${i}`),
+  it('renders current partial transcript', () => {
+    render(
+      <SubtitleOverlay
+        currentTranscript={makeResult('s1', 'Hello World', false)}
+        confirmedTranscripts={[]}
+        sessionState="recognizing"
+      />,
     );
 
-    render(<SubtitleOverlay currentTranslation={null} confirmedTranslations={confirmed} />);
-
-    // 最早的不应渲染
-    expect(screen.queryByText('EN 0')).toBeNull();
-    // 最近8句应渲染（MAX_VISIBLE_SENTENCES = 8）
-    expect(screen.getByText('EN 4')).toBeDefined();
-    expect(screen.getByText('EN 11')).toBeDefined();
+    expect(screen.getByText('Hello World')).toBeDefined();
   });
 
-  it('应该同时渲染当前句和已确认句', () => {
-    const current = makeResult('current', 'Now', '现在', false);
-    const confirmed = [makeResult('old', 'Before', '之前')];
+  it('renders the latest confirmed sentence as the active sentence when no partial is active', () => {
+    render(
+      <SubtitleOverlay
+        currentTranscript={null}
+        confirmedTranscripts={[makeResult('s1', 'First'), makeResult('s2', 'Second')]}
+        sessionState="listening"
+      />,
+    );
 
-    render(<SubtitleOverlay currentTranslation={current} confirmedTranslations={confirmed} />);
+    expect(screen.queryByText('First')).toBeNull();
+    expect(screen.getByText('Second')).toBeDefined();
+  });
 
-    expect(screen.getByText('Now')).toBeDefined();
-    expect(screen.getByText('Before')).toBeDefined();
+  it('does not render a multi-sentence history stack in the floating subtitle', () => {
+    const confirmed = Array.from({ length: 12 }, (_, index) =>
+      makeResult(`s${index}`, `Sentence ${index}`),
+    );
+
+    render(
+      <SubtitleOverlay
+        currentTranscript={null}
+        confirmedTranscripts={confirmed}
+        sessionState="listening"
+      />,
+    );
+
+    expect(screen.queryByText('Sentence 10')).toBeNull();
+    expect(screen.getByText('Sentence 11')).toBeDefined();
+  });
+
+  it('prefers the current partial over the latest confirmed sentence', () => {
+    render(
+      <SubtitleOverlay
+        currentTranscript={makeResult('current', 'Now typing', false)}
+        confirmedTranscripts={[makeResult('old', 'Before')]}
+        sessionState="recognizing"
+      />,
+    );
+
+    expect(screen.getByText('Now typing')).toBeDefined();
+    expect(screen.queryByText('Before')).toBeNull();
+  });
+
+  it('marks stable active source text without a repair data attribute', () => {
+    const { container } = render(
+      <SubtitleOverlay
+        currentTranscript={makeResult('current', 'Now', false)}
+        confirmedTranscripts={[]}
+        sessionState="recognizing"
+      />,
+    );
+
+    const source = screen.getByTestId('subtitle-active-source');
+    expect(source).toBeDefined();
+    expect(container.querySelector('[data-repair="true"]')).toBeNull();
+  });
+
+  it('keeps long source text and translation in bounded visible regions', () => {
+    const longText = Array.from({ length: 40 }, (_, index) => `word${index}`).join(' ');
+    render(
+      <SubtitleOverlay
+        currentTranscript={makeResult('current', longText, false)}
+        confirmedTranscripts={[]}
+        currentTranslation={{
+          sentenceId: 'current',
+          original: longText,
+          translation: '这是一段应该完整显示的中文翻译，不应该只剩半行。',
+        }}
+        sessionState="recognizing"
+      />,
+    );
+
+    const shell = screen.getByTestId('subtitle-shell');
+    const source = screen.getByTestId('subtitle-active-source');
+    const translation = screen.getByTestId('subtitle-active-translation');
+
+    expect(shell.style.maxHeight).toBe('260px');
+    expect(source.style.maxHeight).toBe('126px');
+    expect(source.style.overflowY).toBe('hidden');
+    expect(translation.style.maxHeight).toBe('76px');
+    expect(translation.style.overflowY).toBe('hidden');
+  });
+
+  it('shows state label from main-process session state', () => {
+    render(
+      <SubtitleOverlay
+        currentTranscript={null}
+        confirmedTranscripts={[]}
+        sessionState="reconnecting"
+      />,
+    );
+
+    expect(screen.getByText('重连中')).toBeDefined();
   });
 });

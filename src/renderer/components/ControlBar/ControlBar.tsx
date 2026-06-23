@@ -92,7 +92,11 @@ export function ControlBar({
   onMinimize,
   onExit,
 }: ControlBarProps) {
-  const isRunning = sessionState === 'running';
+  const isRunning =
+    sessionState === 'running' ||
+    sessionState === 'listening' ||
+    sessionState === 'recognizing' ||
+    sessionState === 'reconnecting';
 
   return (
     <div style={S.bar} className="draggable-region">

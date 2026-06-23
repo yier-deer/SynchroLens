@@ -1,104 +1,143 @@
 import { app } from 'electron';
-import { readFileSync, writeFileSync, existsSync, mkdirSync, statSync, readdirSync } from 'fs';
-import { join, dirname, basename, extname } from 'path';
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'fs';
+import { basename, dirname, extname, join } from 'path';
+import type { DictEntry, DictType, DictionaryFileInfo } from '../../../shared/types';
 import { createLogger } from '../../utils/logger';
 
-export interface DictFileInfo {
-  name: string;
-  filePath: string;
-  dictType: string;
-  count: number;
-  enabled: boolean;
-}
+type FileDictType = Exclude<DictType, 'personal'>;
 
-interface DictEntry {
-  source: string;
-  target: string;
-  id?: string;
-}
-
-interface DictFileRuntime extends DictFileInfo {
+interface DictFileRuntime extends DictionaryFileInfo {
   entries: DictEntry[];
 }
 
+function normalizeCell(value: string): string {
+  return value.trim().toLowerCase();
+}
+
+function buildKey(dictType: FileDictType, filePath: string): string {
+  return `${dictType}:${filePath}`;
+}
+
+function isFileDictType(value: unknown): value is FileDictType {
+  return value === 'language' || value === 'domain';
+}
+
+function hasHeader(parts: string[]): boolean {
+  if (parts.length < 2) {
+    return false;
+  }
+
+  const left = normalizeCell(parts[0]);
+  const right = normalizeCell(parts[1]);
+  const leftHeaders = new Set(['source', 'src', 'term', 'original', '原文', '术语']);
+  const rightHeaders = new Set(['target', 'dst', 'translation', '译文', '目标', 'targetlanguage']);
+  return leftHeaders.has(left) && rightHeaders.has(right);
+}
+
 export class DictStore {
-  private l = createLogger('DictStore');
-  private metaPath: string;
-  private files: Map<string, DictFileRuntime> = new Map();
+  private readonly l = createLogger('DictStore');
+  private readonly metaPath: string;
+  private readonly files = new Map<string, DictFileRuntime>();
 
   constructor() {
     this.metaPath = join(app.getPath('userData'), 'SynchroLens', 'dict-files.json');
     this.loadMeta();
   }
 
-  loadFile(dictType: string, filePath: string): DictFileInfo {
+  loadFile(dictType: FileDictType, filePath: string): DictionaryFileInfo {
     const entries = this.parseFile(filePath);
-    this.l.info('词典文件已加载', { dictType, filePath, count: entries.length });
-    const info: DictFileInfo = {
+    const info: DictFileRuntime = {
       name: basename(filePath),
       filePath,
       dictType,
       count: entries.length,
       enabled: true,
+      entries,
     };
-    const key = `${dictType}:${filePath}`;
-    this.files.set(key, { ...info, entries });
+
+    this.files.set(buildKey(dictType, filePath), info);
     this.saveMeta();
-    return info;
+    this.l.info('词典文件已加载', { dictType, filePath, count: entries.length });
+    return this.toFileInfo(info);
   }
 
-  removeFile(dictType: string, filePath: string): void {
-    const key = `${dictType}:${filePath}`;
-    this.files.delete(key);
+  listFiles(dictType?: FileDictType): DictionaryFileInfo[] {
+    return Array.from(this.files.values())
+      .filter((file) => !dictType || file.dictType === dictType)
+      .map((file) => this.toFileInfo(file))
+      .sort((left, right) => left.name.localeCompare(right.name, 'zh-CN'));
+  }
+
+  removeFile(dictType: FileDictType, filePath: string): void {
+    this.files.delete(buildKey(dictType, filePath));
     this.saveMeta();
   }
 
-  toggleFile(dictType: string, filePath: string, enabled: boolean): void {
-    const key = `${dictType}:${filePath}`;
-    const info = this.files.get(key);
-    if (info) {
-      info.enabled = enabled;
-      this.saveMeta();
+  toggleFile(dictType: FileDictType, filePath: string, enabled: boolean): void {
+    const file = this.files.get(buildKey(dictType, filePath));
+    if (!file) {
+      return;
     }
+
+    file.enabled = enabled;
+    this.saveMeta();
   }
 
-  getEntries(dictType: string): DictEntry[] {
-    const result: DictEntry[] = [];
-    for (const [, file] of this.files) {
-      if (file.dictType === dictType && file.enabled && file.entries) {
-        result.push(...file.entries);
+  getEntries(dictType: FileDictType): DictEntry[] {
+    return Array.from(this.files.values())
+      .filter((file) => file.dictType === dictType && file.enabled)
+      .flatMap((file) => file.entries.map((entry) => ({ ...entry })));
+  }
+
+  getEnabledEntries(dictType: FileDictType): DictEntry[] {
+    return this.getEntries(dictType);
+  }
+
+  removeEntry(dictType: FileDictType, filePath: string, idx: number): void {
+    const file = this.files.get(buildKey(dictType, filePath));
+    if (!file) {
+      return;
+    }
+
+    file.entries.splice(idx, 1);
+    file.count = file.entries.length;
+    this.saveMeta();
+  }
+
+  removeEntryById(dictType: FileDictType, entryId: string): boolean {
+    for (const file of this.files.values()) {
+      if (file.dictType !== dictType) {
+        continue;
       }
-    }
-    return result;
-  }
 
-  removeEntry(dictType: string, filePath: string, idx: number): void {
-    const key = `${dictType}:${filePath}`;
-    const fi = this.files.get(key);
-    if (fi?.entries) {
-      fi.entries.splice(idx, 1);
-      fi.count = fi.entries.length;
-      this.saveMeta();
-    }
-  }
-
-  removeEntryById(dictType: string, entryId: string): boolean {
-    for (const [, file] of this.files) {
-      if (!file.entries || !Array.isArray(file.entries)) continue;
-      const idx = file.entries.findIndex((e) => e.id === entryId);
-      if (idx !== -1) {
-        file.entries.splice(idx, 1);
-        file.count = file.entries.length;
-        this.saveMeta();
-        return true;
+      const idx = file.entries.findIndex((entry) => entry.id === entryId);
+      if (idx === -1) {
+        continue;
       }
+
+      file.entries.splice(idx, 1);
+      file.count = file.entries.length;
+      this.saveMeta();
+      return true;
     }
+
     return false;
+  }
+
+  private toFileInfo(file: DictionaryFileInfo): DictionaryFileInfo {
+    return {
+      name: file.name,
+      filePath: file.filePath,
+      dictType: file.dictType,
+      count: file.count,
+      enabled: file.enabled,
+    };
   }
 
   private parseFile(filePath: string): DictEntry[] {
     const ext = extname(filePath).toLowerCase();
     const content = readFileSync(filePath, 'utf-8');
+
     try {
       switch (ext) {
         case '.csv':
@@ -108,91 +147,140 @@ export class DictStore {
         case '.txt':
           return this.parseTxt(content);
         default:
-          this.l.warn('不支持的词典格式', { ext });
+          this.l.warn('不支持的词典格式', { filePath, ext });
           return [];
       }
-    } catch (err) {
-      this.l.error('词典解析失败', { filePath, error: (err as Error).message });
+    } catch (error) {
+      this.l.error('词典解析失败', { filePath, error: (error as Error).message });
       return [];
     }
   }
 
   private parseCsv(content: string): DictEntry[] {
-    const lines = content.split('\n');
+    const lines = content
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .filter(Boolean);
+
     const entries: DictEntry[] = [];
-    let start = 0;
-    if (lines.length > 0 && /\p{L}/u.test(lines[0].split(',')[0])) start = 1;
-    for (let i = start; i < lines.length; i++) {
-      const parts = lines[i].split(',');
-      if (parts.length >= 2 && parts[0].trim() && parts[1].trim()) {
-        entries.push({ source: parts[0].trim(), target: parts[1].trim() });
+    for (let index = 0; index < lines.length; index += 1) {
+      const parts = lines[index].split(',').map((part) => part.trim());
+      if (index === 0 && hasHeader(parts)) {
+        continue;
       }
+
+      const [source, target] = parts;
+      if (!source || !target) {
+        continue;
+      }
+
+      entries.push({ source, target });
     }
+
     return entries;
   }
 
   private parseJson(content: string): DictEntry[] {
-    const data = JSON.parse(content);
+    const data = JSON.parse(content) as unknown;
     if (Array.isArray(data)) {
-      return data.map(item => ({
-        source: item.source || item.key || '',
-        target: item.target || item.value || '',
-      })).filter(e => e.source && e.target);
+      return data.reduce<DictEntry[]>((entries, item) => {
+        if (!item || typeof item !== 'object') {
+          return entries;
+        }
+        const record = item as Record<string, unknown>;
+        const source = String(record.source ?? record.key ?? record.original ?? '').trim();
+        const target = String(record.target ?? record.value ?? record.translation ?? '').trim();
+        if (!source || !target) {
+          return entries;
+        }
+
+        const id = typeof record.id === 'string' ? record.id : undefined;
+        entries.push(id ? { id, source, target } : { source, target });
+        return entries;
+      }, []);
     }
-    if (typeof data === 'object') {
-      return Object.entries(data).map(([k, v]) => ({
-        source: k, target: String(v),
-      }));
+
+    if (data && typeof data === 'object') {
+      return Object.entries(data as Record<string, unknown>)
+        .map(([source, target]) => ({ source: source.trim(), target: String(target).trim() }))
+        .filter((entry) => entry.source && entry.target);
     }
+
     return [];
   }
 
   private parseTxt(content: string): DictEntry[] {
     const entries: DictEntry[] = [];
-    for (const line of content.split('\n')) {
-      const trimmed = line.trim();
-      if (!trimmed || trimmed.startsWith('#')) continue;
-      let sep = '';
-      for (const char of ['=', ':', '\t']) {
-        if (trimmed.includes(char)) { sep = char; break; }
+    for (const rawLine of content.split(/\r?\n/)) {
+      const line = rawLine.trim();
+      if (!line || line.startsWith('#')) {
+        continue;
       }
-      if (sep) {
-        const idx = trimmed.indexOf(sep);
-        const source = trimmed.slice(0, idx).trim();
-        const target = trimmed.slice(idx + 1).trim();
-        if (source && target) entries.push({ source, target });
+
+      const separator = ['\t', '=', ':'].find((candidate) => line.includes(candidate));
+      if (!separator) {
+        continue;
+      }
+
+      const idx = line.indexOf(separator);
+      const source = line.slice(0, idx).trim();
+      const target = line.slice(idx + separator.length).trim();
+      if (source && target) {
+        entries.push({ source, target });
       }
     }
+
     return entries;
   }
 
   private loadMeta(): void {
     try {
-      if (!existsSync(this.metaPath)) return;
-      const raw = JSON.parse(readFileSync(this.metaPath, 'utf-8'));
-      if (Array.isArray(raw)) {
-        for (const item of raw) {
-          const key = `${item.dictType}:${item.filePath}`;
-          const runtime: DictFileRuntime = { ...item, entries: [] };
-          this.files.set(key, runtime);
-        }
+      if (!existsSync(this.metaPath)) {
+        return;
       }
-    } catch {
-      this.l.warn('词典元信息加载失败');
+
+      const raw = JSON.parse(readFileSync(this.metaPath, 'utf-8')) as unknown;
+      if (!Array.isArray(raw)) {
+        return;
+      }
+
+      for (const item of raw) {
+        if (!item || typeof item !== 'object') {
+          continue;
+        }
+
+        const file = item as Record<string, unknown>;
+        if (!isFileDictType(file.dictType) || typeof file.filePath !== 'string' || !existsSync(file.filePath)) {
+          continue;
+        }
+
+        const entries = this.parseFile(file.filePath);
+        const runtime: DictFileRuntime = {
+          name: typeof file.name === 'string' ? file.name : basename(file.filePath),
+          filePath: file.filePath,
+          dictType: file.dictType,
+          count: entries.length,
+          enabled: file.enabled !== false,
+          entries,
+        };
+        this.files.set(buildKey(runtime.dictType, runtime.filePath), runtime);
+      }
+    } catch (error) {
+      this.l.warn('词典元信息加载失败', { error: (error as Error).message });
     }
   }
 
   private saveMeta(): void {
     try {
       const dir = dirname(this.metaPath);
-      if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
-      const items: DictFileInfo[] = [];
-      for (const { entries: _entries, ...rest } of this.files.values()) {
-        items.push(rest);
+      if (!existsSync(dir)) {
+        mkdirSync(dir, { recursive: true });
       }
-      writeFileSync(this.metaPath, JSON.stringify(items, null, 2), 'utf-8');
-    } catch (err) {
-      this.l.error('词典元信息保存失败', { error: (err as Error).message });
+
+      const data = this.listFiles();
+      writeFileSync(this.metaPath, JSON.stringify(data, null, 2), 'utf-8');
+    } catch (error) {
+      this.l.error('词典元信息保存失败', { error: (error as Error).message });
     }
   }
 }

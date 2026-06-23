@@ -2,7 +2,13 @@ import React, { useState, useEffect, useCallback, useRef } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { ArrowLeft, Copy, Wand2, X, Check } from 'lucide-react';
-import type { NoteTreeItem, TranslationResult } from '../../../shared/types';
+import type {
+  EnhancementStatusPayload,
+  NoteTreeItem,
+  PersonalDictStatus,
+  SessionState,
+  TranslationResult,
+} from '../../../shared/types';
 import { useToast } from '../common/Toast';
 
 interface NotesViewProps {
@@ -18,6 +24,8 @@ export function NotesView({ selectedNote, onClearSelection, onSummaryExtracted, 
   const [sessionState, setSessionState] = useState<'idle' | 'running' | 'stopped'>('idle');
   const [sentences, setSentences] = useState<TranslationResult[]>([]);
   const [currentSentence, setCurrentSentence] = useState<TranslationResult | null>(null);
+  const [enhancementCorrections, setEnhancementCorrections] = useState<TranslationResult['corrections']>([]);
+  const [recommendations, setRecommendations] = useState<string[]>([]);
   const [noteContent, setNoteContent] = useState('');
   const [selectedText, setSelectedText] = useState('');
   const [showContextMenu, setShowContextMenu] = useState(false);
@@ -36,10 +44,10 @@ export function NotesView({ selectedNote, onClearSelection, onSummaryExtracted, 
     });
 
     const unsubscribePartial = window.synchrolens.on('translate:partial', (data: unknown) => {
-      const payload = data as { sentenceId: string; translation: string };
+      const payload = data as { sentenceId: string; original?: string; translation: string };
       setCurrentSentence({
         sentenceId: payload.sentenceId,
-        original: '',
+        original: payload.original || '',
         translation: payload.translation,
         isFinal: false,
         corrections: [],
@@ -52,10 +60,21 @@ export function NotesView({ selectedNote, onClearSelection, onSummaryExtracted, 
       setSentences(prev => [...prev, payload]);
     });
 
+    const unsubscribeEnhancement = window.synchrolens.on('enhancement:status', (data: unknown) => {
+      const payload = data as EnhancementStatusPayload;
+      if (payload.kind === 'correction' && payload.state === 'completed' && payload.corrections) {
+        setEnhancementCorrections(payload.corrections);
+      }
+      if (payload.kind === 'recommendation' && payload.state === 'completed' && payload.recommendations) {
+        setRecommendations(payload.recommendations);
+      }
+    });
+
     return () => {
       unsubscribeState();
       unsubscribePartial();
       unsubscribeFinal();
+      unsubscribeEnhancement();
     };
   }, []);
 
@@ -128,16 +147,16 @@ export function NotesView({ selectedNote, onClearSelection, onSummaryExtracted, 
   }, [selectedText]);
 
   const handleSubmitImprove = useCallback(async () => {
-    // 检查向量模型是否配置
     try {
-      const isEnabled = await window.synchrolens.isPersonalDictEnabled();
-      if (!isEnabled) {
-        window.alert('向量模型密钥未配置，请先在「设置」→「向量模型」中配置 Embedding Key，以便改进翻译能被向量化存储。');
+      const status = await window.synchrolens.getPersonalDictStatus() as PersonalDictStatus;
+      if (!status.available) {
+        window.alert('个性化词典当前不可用，请稍后重试。');
         return;
       }
     } catch {
-      // 检测失败不阻断流程
+      // 状态检测失败不阻断提交
     }
+
     await window.synchrolens.submitImprovement(
       improveData.original,
       improveData.improved,
@@ -247,7 +266,7 @@ export function NotesView({ selectedNote, onClearSelection, onSummaryExtracted, 
                 className="glass-card p-3 animate-fade-in"
               >
                 <p className="text-xs text-surface-500 mb-1">{sentence.original}</p>
-                <p className="text-sm text-surface-200">{sentence.translation}</p>
+                <p className="text-sm text-surface-200">{sentence.error ? `翻译失败：${sentence.error}` : sentence.translation}</p>
                 {sentence.corrections && sentence.corrections.length > 0 && (
                   <div className="mt-2 pt-2 border-t border-surface-700/30">
                     {sentence.corrections.map((corr, idx) => (
@@ -265,6 +284,27 @@ export function NotesView({ selectedNote, onClearSelection, onSummaryExtracted, 
                   {currentSentence.translation}
                   <span className="inline-block w-0.5 h-4 bg-primary-400 ml-1 animate-cursor-blink align-middle" />
                 </p>
+              </div>
+            )}
+            {enhancementCorrections.length > 0 && (
+              <div className="glass-card p-3 animate-fade-in">
+                <p className="text-xs text-surface-500 mb-2">纠正建议</p>
+                {enhancementCorrections.map((corr, idx) => (
+                  <div key={`${corr.from}-${corr.to}-${idx}`} className="mb-2 last:mb-0">
+                    <p className="text-sm text-surface-200">{corr.reason}</p>
+                    <p className="text-xs text-primary-400/80">{corr.from} {'->'} {corr.to}</p>
+                  </div>
+                ))}
+              </div>
+            )}
+            {recommendations.length > 0 && (
+              <div className="glass-card p-3 animate-fade-in">
+                <p className="text-xs text-surface-500 mb-2">词条推荐</p>
+                {recommendations.map((recommendation, idx) => (
+                  <p key={`${recommendation}-${idx}`} className="text-sm text-surface-200">
+                    {recommendation}
+                  </p>
+                ))}
               </div>
             )}
           </>

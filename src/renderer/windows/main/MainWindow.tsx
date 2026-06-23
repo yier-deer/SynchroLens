@@ -3,6 +3,7 @@ import { Sidebar, type ViewType } from '../../components/Sidebar/Sidebar';
 import { NotesView } from '../../components/Notes/NotesView';
 import { FavoritesView } from '../../components/Favorites/FavoritesView';
 import { DictionaryView } from '../../components/Dictionary/DictionaryView';
+import { SummaryViewer } from '../../components/SummaryViewer/SummaryViewer';
 import { SettingsPanel } from '../../components/SettingsPanel/SettingsPanel';
 import { ToastProvider, useToast } from '../../components/common/Toast';
 import { SplashScreen } from '../../components/common/SplashScreen';
@@ -36,9 +37,13 @@ function SettingsWithActions({ config, onSave }: { config: AppConfig; onSave: (c
     setShowExportConfirm(false);
   }, []);
 
-  const handleSaveSettings = useCallback((newConfig: AppConfig) => {
-    onSave(newConfig);
-    showToast('设置已保存');
+  const handleSaveSettings = useCallback(async (newConfig: AppConfig) => {
+    try {
+      await onSave(newConfig);
+      showToast('设置已保存');
+    } catch {
+      showToast('设置保存失败', 'error');
+    }
   }, [onSave, showToast]);
 
   return (
@@ -75,7 +80,6 @@ function checkRecordingKeys(config: AppConfig): string | null {
   if (!config.stt?.appId) missing.push('讯飞 AppID');
   if (!config.stt?.apiKey) missing.push('讯飞 API Key');
   if (!config.stt?.apiSecret) missing.push('讯飞 API Secret');
-  if (!config.translation?.apiKey) missing.push('DeepSeek API Key');
   if (missing.length > 0) {
     return `以下密钥未配置，请先在「设置」中填写：\n\n${missing.map(m => `• ${m}`).join('\n')}`;
   }
@@ -97,6 +101,7 @@ export function MainWindow() {
   const [lastNotePath, setLastNotePath] = useState<string | null>(null);
   const [noteSummary, setNoteSummary] = useState('');
   const [summaryVisible, setSummaryVisible] = useState(true);
+  const [isGeneratingSummary, setIsGeneratingSummary] = useState(false);
   const [config, setConfig] = useState<AppConfig>({ ...DEFAULT_CONFIG });
   const [notesRefreshKey, setNotesRefreshKey] = useState(0);
   const ipc = useIPC();
@@ -126,7 +131,7 @@ export function MainWindow() {
     document.documentElement.setAttribute('data-theme', theme);
   }, [config.general?.theme]);
 
-  const isRecording = session.sessionState === 'running';
+  const isRecording = ['running', 'listening', 'recognizing', 'reconnecting'].includes(session.sessionState);
   const isNotes = activeView === 'notes';
 
   // 录制停止后自动刷新笔记列表，并切换到最新笔记
@@ -175,10 +180,19 @@ export function MainWindow() {
   }, [config]);
 
   const handleConfigSave = useCallback(async (newConfig: AppConfig) => {
-    setConfig(newConfig);
-    ipc.updateConfig(newConfig as unknown as Record<string, unknown>);
     // 持久化保存到磁盘
     await window.synchrolens.saveConfig(newConfig);
+    setConfig(newConfig);
+    await ipc.updateConfig(newConfig as unknown as Record<string, unknown>);
+  }, [ipc]);
+
+  const handleGenerateSummary = useCallback(async () => {
+    setIsGeneratingSummary(true);
+    try {
+      await ipc.triggerSummary();
+    } finally {
+      setIsGeneratingSummary(false);
+    }
   }, [ipc]);
 
   if (showSplash) {
@@ -255,11 +269,12 @@ export function MainWindow() {
               </button>
             </div>
             {summaryVisible && (
-              (session.summary || noteSummary) ? (
-                <p className="text-sm text-surface-400 leading-relaxed">{noteSummary || session.summary}</p>
-              ) : (
-                <p className="text-sm text-surface-500 text-center mt-8">暂无摘要内容</p>
-              )
+              <SummaryViewer
+                summary={noteSummary || session.summary}
+                onGenerateSummary={handleGenerateSummary}
+                isRunning={!isGeneratingSummary && (session.confirmedTranslations?.length ?? 0) > 0}
+                status={session.enhancementStatus.summary}
+              />
             )}
           </div>
         )}

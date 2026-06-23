@@ -4,6 +4,15 @@ import { existsSync } from 'fs';
 import { createLogger } from '../../utils/logger';
 
 type AudioDataCallback = (pcmBuffer: Int16Array) => void;
+type SpawnProcess = ReturnType<typeof spawn>;
+type SpawnFn = typeof spawn;
+
+export interface AudioCaptureDependencies {
+  findFfmpeg?: () => string | null;
+  getDshowDevices?: (ffmpegPath: string) => Promise<string[]>;
+  spawnProcess?: SpawnFn;
+  startupDelayMs?: number;
+}
 
 const EVENTS = {
   DATA: 'data',
@@ -38,6 +47,16 @@ async function getDshowDevices(ffmpegPath: string): Promise<string[]> {
       stdio: ['ignore', 'pipe', 'pipe'],
     });
     let stderr = '';
+    let settled = false;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+
+    const settle = (devices: string[]) => {
+      if (settled) return;
+      settled = true;
+      if (timer) clearTimeout(timer);
+      resolve(devices);
+    };
+
     proc.stderr?.on('data', (chunk: Buffer) => {
       stderr += chunk.toString('utf-8');
     });
@@ -52,11 +71,11 @@ async function getDshowDevices(ffmpegPath: string): Promise<string[]> {
           }
         }
       }
-      resolve(devices);
+      settle(devices);
     });
-    proc.on('error', () => resolve([]));
+    proc.on('error', () => settle([]));
     // 5 秒超时
-    setTimeout(() => { try { proc.kill(); } catch { /* */ } resolve([]); }, 5000);
+    timer = setTimeout(() => { try { proc.kill(); } catch { /* */ } settle([]); }, 5000);
   });
 }
 
@@ -82,13 +101,24 @@ function findLoopback(devices: string[]): string | null {
 
 export class AudioCapture {
   private l = createLogger('AudioCapture');
-  private recordProcess: ReturnType<typeof spawn> | null = null;
+  private recordProcess: SpawnProcess | null = null;
   private dataCallbacks: Set<AudioDataCallback> = new Set();
   private running = false;
   private currentSource: 'system' | 'microphone' = 'system';
   private emitter = new EventEmitter();
   /** 音频 chunk 计数器（诊断用） */
   private chunkCount = 0;
+  private readonly deps: Required<AudioCaptureDependencies>;
+
+  constructor(deps: AudioCaptureDependencies = {}) {
+    this.deps = {
+      findFfmpeg,
+      getDshowDevices,
+      spawnProcess: spawn,
+      startupDelayMs: 300,
+      ...deps,
+    };
+  }
 
   async start(source: 'system' | 'microphone', deviceId?: string): Promise<void> {
     if (this.running) this.stop();
@@ -96,14 +126,14 @@ export class AudioCapture {
     this.running = true;
     this.l.info('音频采集启动', { source, deviceId: deviceId || 'default', platform: process.platform });
 
-    const ffmpegPath = findFfmpeg();
+    const ffmpegPath = this.deps.findFfmpeg();
     if (!ffmpegPath) {
       this.running = false;
       throw new Error('ffmpeg 未找到。请安装 ffmpeg 到 E:\\ffmpeg 或系统 PATH');
     }
     this.l.info('找到 ffmpeg', { path: ffmpegPath });
 
-    const devices = await getDshowDevices(ffmpegPath);
+    const devices = await this.deps.getDshowDevices(ffmpegPath);
     this.l.info('dshow 设备列表', { devices, count: devices.length });
 
     try {
@@ -141,7 +171,7 @@ export class AudioCapture {
   private async launchFfmpeg(ffmpegPath: string, device: string | null, label: string): Promise<void> {
     const input = device ? `audio=${device}` : 'audio=default';
     const args = ['-f', 'dshow', '-rtbufsize', '2M', '-i', input, '-f', 's16le', '-ar', '16000', '-ac', '1', 'pipe:1'];
-    this.recordProcess = spawn(ffmpegPath, args, { stdio: ['ignore', 'pipe', 'pipe'] });
+    this.recordProcess = this.deps.spawnProcess(ffmpegPath, args, { stdio: ['ignore', 'pipe', 'pipe'] });
 
     // ← 关键：立即设置数据监听器，否则 pipe 会在 300ms 内被填满阻塞
     this.setupProcessListeners(label);
@@ -154,7 +184,7 @@ export class AudioCapture {
         } else {
           reject(new Error('ffmpeg 进程启动后立即退出'));
         }
-      }, 300);
+      }, this.deps.startupDelayMs);
       // 如果已经在 close handler 里标记了 running=false，不再 reject
       this.recordProcess!.once('exit', (code) => {
         clearTimeout(timeout);
@@ -242,10 +272,10 @@ export class AudioCapture {
   }
 
   async getAvailableDevices(): Promise<{ deviceId: string; label: string }[]> {
-    const ffmpegPath = findFfmpeg();
+    const ffmpegPath = this.deps.findFfmpeg();
     if (ffmpegPath) {
       try {
-        const devices = await getDshowDevices(ffmpegPath);
+        const devices = await this.deps.getDshowDevices(ffmpegPath);
         return devices.map((d, i) => ({ deviceId: `dshow-${i}`, label: d }));
       } catch { /* ignore */ }
     }
