@@ -12,18 +12,24 @@ import appLogger from './utils/logger';
 import { setBrowserWindows, registerIPCHandlers, setModuleRegistry, sendToAllWindows } from './ipc/handlers';
 import type { ModuleRegistry } from './ipc/handlers';
 import { AudioCapture } from './modules/audio/AudioCapture';
-import { STTClient } from './modules/stt/STTClient';
+import { EnhancementOrchestrator } from './modules/enhancement/EnhancementOrchestrator';
+import { createSTTClient } from './modules/stt/STTClientFactory';
 import { Translator } from './modules/translate/Translator';
-import { NoteWriter } from './modules/note/NoteWriter';
+import { ContextWindowManager } from './modules/translate/ContextWindowManager';
+import { NMTTranslator } from './modules/translate/NMTTranslator';
+import { TranslationGateway } from './modules/translate/TranslationGateway';
+import { TencentTMTAdapterServer } from './modules/tmt/TencentTMTAdapterServer';
+import { NoteRepository } from './modules/note/NoteRepository';
 import { CorrectionDetector } from './modules/correction/CorrectionDetector';
 import { SessionManager } from './modules/session/SessionManager';
 import { FavoriteStore } from './modules/favorite/FavoriteStore';
 import { NoteReader } from './modules/note/NoteReader';
 import { DictStore } from './modules/dictionary/DictStore';
 import { PersonalDictStore } from './modules/dictionary/PersonalDictStore';
+import { TerminologyResolver } from './modules/dictionary/TerminologyResolver';
 import { ConfigStore } from './modules/config/ConfigStore';
 import { EmbeddingClient } from './modules/vector/EmbeddingClient';
-import type { AppConfig, Session } from '../shared/types';
+import type { AppConfig, DictType, Session } from '../shared/types';
 import { IPC_CHANNELS } from '../shared/ipcChannels';
 
 try {
@@ -57,7 +63,9 @@ let noteReader: NoteReader | null = null;
 let dictStore: DictStore | null = null;
 let personalDictStore: PersonalDictStore | null = null;
 let configStore: ConfigStore | null = null;
+let tencentTmtAdapterServer: TencentTMTAdapterServer | null = null;
 let embeddingClient: EmbeddingClient | null = null;
+let terminologyResolver: TerminologyResolver | null = null;
 
 /** 渲染进程开发服务器基础 URL */
 const RENDERER_DEV_URL = process.env.ELECTRON_RENDERER_URL;
@@ -119,7 +127,7 @@ function createSubtitleWindow(): BrowserWindow {
   const primaryDisplay = screen.getPrimaryDisplay();
   const { width: screenW, height: screenH } = primaryDisplay.workAreaSize;
   const winW = 800;
-  const winH = 180;
+  const winH = 280;
   const win = new BrowserWindow({
     width: winW,
     height: winH,
@@ -254,13 +262,11 @@ function createTray(): void {
 
 function setupIpcHandlers(): void {
   ipcMain.handle(IPC_CHANNELS.WINDOW_PREPARE_RECORD, async () => {
-    // 密钥检测：必须配置讯飞 STT 和 DeepSeek 翻译
+    // 仅要求 STT 配置就绪；阶段三主链路翻译由 NMT 负责，可为本地或免密服务
     const sttReady = process.env.XFYUN_APP_ID && process.env.XFYUN_API_KEY && process.env.XFYUN_API_SECRET;
-    const translateReady = process.env.DEEPSEEK_API_KEY;
-    if (!sttReady || !translateReady) {
+    if (!sttReady) {
       const missing = [];
       if (!sttReady) missing.push('语音识别（讯飞）');
-      if (!translateReady) missing.push('翻译服务（DeepSeek）');
       await dialog.showMessageBox({
         type: 'warning',
         title: 'SynchroLens',
@@ -323,7 +329,7 @@ function setupIpcHandlers(): void {
   ipcMain.handle(IPC_CHANNELS.FAVORITE_EXPORT, (_e, payload: { ids: string[]; savePath: string }) => favoriteStore!.exportToMarkdown(payload.ids, payload.savePath));
   ipcMain.handle(IPC_CHANNELS.IMPROVE_SUBMIT, async (_e, payload: { original: string; improved: string; reason: string; context: string }) => {
     let embedding: number[] | undefined;
-    if (embeddingClient) {
+    if (embeddingClient?.hasApiKey) {
       try {
         const combined = `原文: ${payload.original}\n改进译文: ${payload.improved}\n改进建议: ${payload.reason}`;
         const embeddings = await embeddingClient.embedTexts([combined]);
@@ -337,18 +343,23 @@ function setupIpcHandlers(): void {
       embedding,
     );
   });
-  ipcMain.handle(IPC_CHANNELS.PERSONAL_DICT_STATUS, () => !!process.env.DEEPSEEK_API_KEY);
-  ipcMain.handle(IPC_CHANNELS.DICTIONARY_ENTRIES_GET, (_e, payload: { dictType: string }) => {
+  ipcMain.handle(IPC_CHANNELS.PERSONAL_DICT_STATUS, () => ({
+    available: personalDictStore !== null,
+    hasEntries: personalDictStore?.isEnabled() ?? false,
+    embeddingReady: embeddingClient?.hasApiKey ?? false,
+  }));
+  ipcMain.handle(IPC_CHANNELS.DICTIONARY_ENTRIES_GET, (_e, payload: { dictType: DictType }) => {
     if (payload.dictType === 'personal') return personalDictStore!.getAll();
     return dictStore!.getEntries(payload.dictType);
   });
-  ipcMain.handle(IPC_CHANNELS.DICTIONARY_ENTRY_REMOVE, (_e, payload: { dictType: string; entryId: string }) => {
+  ipcMain.handle(IPC_CHANNELS.DICTIONARY_ENTRY_REMOVE, (_e, payload: { dictType: DictType; entryId: string }) => {
     if (payload.dictType === 'personal') return personalDictStore!.remove(payload.entryId);
     return dictStore!.removeEntryById(payload.dictType, payload.entryId);
   });
-  ipcMain.handle(IPC_CHANNELS.DICTIONARY_FILE_LOAD, (_e, payload: { dictType: string; filePath: string }) => dictStore!.loadFile(payload.dictType, payload.filePath));
-  ipcMain.handle(IPC_CHANNELS.DICTIONARY_FILE_REMOVE, (_e, payload: { dictType: string; filePath: string }) => dictStore!.removeFile(payload.dictType, payload.filePath));
-  ipcMain.handle(IPC_CHANNELS.DICTIONARY_FILE_TOGGLE, (_e, payload: { dictType: string; filePath: string; enabled: boolean }) => dictStore!.toggleFile(payload.dictType, payload.filePath, payload.enabled));
+  ipcMain.handle(IPC_CHANNELS.DICTIONARY_FILES_LIST, (_e, payload: { dictType: Exclude<DictType, 'personal'> }) => dictStore!.listFiles(payload.dictType));
+  ipcMain.handle(IPC_CHANNELS.DICTIONARY_FILE_LOAD, (_e, payload: { dictType: Exclude<DictType, 'personal'>; filePath: string }) => dictStore!.loadFile(payload.dictType, payload.filePath));
+  ipcMain.handle(IPC_CHANNELS.DICTIONARY_FILE_REMOVE, (_e, payload: { dictType: Exclude<DictType, 'personal'>; filePath: string }) => dictStore!.removeFile(payload.dictType, payload.filePath));
+  ipcMain.handle(IPC_CHANNELS.DICTIONARY_FILE_TOGGLE, (_e, payload: { dictType: Exclude<DictType, 'personal'>; filePath: string; enabled: boolean }) => dictStore!.toggleFile(payload.dictType, payload.filePath, payload.enabled));
   ipcMain.handle(IPC_CHANNELS.SELECT_DIRECTORY, async () => {
     const result = await dialog.showOpenDialog({
       properties: ['openDirectory'],
@@ -384,7 +395,7 @@ function setupIpcHandlers(): void {
     for (const type of payload.types) {
       switch (type) {
         case 'notes':
-          rmSync(join(homedir(), 'SynchroLens', 'Notes'), { recursive: true, force: true });
+          rmSync(noteReader?.getNotesDir() || join(homedir(), 'SynchroLens', 'Notes'), { recursive: true, force: true });
           break;
         case 'favorites':
           rmSync(join(dataDir, 'favorites.json'), { force: true });
@@ -416,30 +427,85 @@ export function registerAppLifecycle(): void {
     mainWindow = createMainWindow();
     createTray();
 
+    configStore = new ConfigStore();
+    const savedConfig = configStore.load();
     const audioCapture = new AudioCapture();
-    const sttClient = new STTClient();
+    const sttClient = createSTTClient(savedConfig.stt);
     const translator = new Translator({
-      apiKey: process.env.DEEPSEEK_API_KEY || '',
+      apiEndpoint: process.env.LLM_API_ENDPOINT || process.env.DEEPSEEK_API_ENDPOINT || 'https://api.deepseek.com',
+      apiKey: process.env.LLM_API_KEY || process.env.DEEPSEEK_API_KEY || '',
+      model: process.env.LLM_MODEL || process.env.DEEPSEEK_MODEL || 'deepseek-v4-flash',
     });
-    const noteWriter = new NoteWriter();
+    const nmtTranslator = new NMTTranslator({
+      apiEndpoint: process.env.NMT_API_ENDPOINT || 'http://127.0.0.1:8765',
+      apiKey: process.env.NMT_API_KEY || '',
+      model: process.env.NMT_MODEL || 'nmt-default',
+      targetLanguage: 'zh-CN',
+    });
+    const translationGateway = new TranslationGateway({
+      translator: nmtTranslator,
+      contextWindow: new ContextWindowManager(),
+    });
+    const noteRepository = new NoteRepository();
     const correctionDetector = new CorrectionDetector();
+    const enhancementOrchestrator = new EnhancementOrchestrator();
     favoriteStore = new FavoriteStore();
-    noteReader = new NoteReader(join(homedir(), 'SynchroLens', 'Notes'));
     dictStore = new DictStore();
     personalDictStore = new PersonalDictStore();
-    configStore = new ConfigStore();
+    tencentTmtAdapterServer = new TencentTMTAdapterServer({
+      getConfig: () => {
+        const currentConfig = configStore?.load();
+        const tencent = currentConfig?.translation?.tencent;
+        return {
+          ...tencent,
+          secretKey: configStore?.getTencentSecretKey() || undefined,
+        };
+      },
+    });
 
     // 加载持久化配置并覆盖 process.env
-    const savedConfig = configStore.load();
+    noteReader = new NoteReader(savedConfig.note.saveDir);
     if (savedConfig.stt?.appId) process.env.XFYUN_APP_ID = savedConfig.stt.appId;
     if (savedConfig.stt?.apiKey) process.env.XFYUN_API_KEY = savedConfig.stt.apiKey;
     if (savedConfig.stt?.apiSecret) process.env.XFYUN_API_SECRET = savedConfig.stt.apiSecret;
-    if (savedConfig.stt?.language) sttClient.setLanguage(savedConfig.stt.language);
+    if (savedConfig.stt?.language) sttClient.setLanguage?.(savedConfig.stt.language);
     if (savedConfig.translation?.apiKey) {
-      process.env.DEEPSEEK_API_KEY = savedConfig.translation.apiKey;
-      translator.setApiKey(savedConfig.translation.apiKey);
-      if (savedConfig.translation.model) translator.setModel(savedConfig.translation.model);
-      if (savedConfig.translation.targetLanguage) translator.setTargetLanguage(savedConfig.translation.targetLanguage);
+      process.env.NMT_API_KEY = savedConfig.translation.apiKey;
+      nmtTranslator.setApiKey(savedConfig.translation.apiKey);
+    }
+    if (savedConfig.translation?.provider === 'tencent-tmt') {
+      process.env.NMT_API_ENDPOINT = 'http://127.0.0.1:8765';
+      process.env.NMT_MODEL = 'tencent-tmt';
+      nmtTranslator.setApiEndpoint('http://127.0.0.1:8765');
+      nmtTranslator.setModel('tencent-tmt');
+      void tencentTmtAdapterServer?.start();
+    } else {
+      if (savedConfig.translation?.apiEndpoint) {
+        process.env.NMT_API_ENDPOINT = savedConfig.translation.apiEndpoint;
+        nmtTranslator.setApiEndpoint(savedConfig.translation.apiEndpoint);
+      }
+      if (savedConfig.translation?.model) {
+        process.env.NMT_MODEL = savedConfig.translation.model;
+        nmtTranslator.setModel(savedConfig.translation.model);
+      }
+    }
+    if (savedConfig.translation?.targetLanguage) {
+      nmtTranslator.setTargetLanguage(savedConfig.translation.targetLanguage);
+    }
+    if (savedConfig.translation?.contextWindowSize) {
+      translationGateway.updateWindowSize(savedConfig.translation.contextWindowSize);
+    }
+    if (savedConfig.llm?.apiKey) {
+      process.env.LLM_API_KEY = savedConfig.llm.apiKey;
+      translator.setApiKey(savedConfig.llm.apiKey);
+    }
+    if (savedConfig.llm?.apiEndpoint) {
+      process.env.LLM_API_ENDPOINT = savedConfig.llm.apiEndpoint;
+      translator.setApiEndpoint(savedConfig.llm.apiEndpoint);
+    }
+    if (savedConfig.llm?.model) {
+      process.env.LLM_MODEL = savedConfig.llm.model;
+      translator.setModel(savedConfig.llm.model);
     }
 
     embeddingClient = new EmbeddingClient({
@@ -447,9 +513,23 @@ export function registerAppLifecycle(): void {
       apiEndpoint: savedConfig.vector?.apiEndpoint || 'https://ark.cn-beijing.volces.com/api/v3',
       model: savedConfig.vector?.model || 'doubao-embedding-vision-251215',
     });
-    const sessionManager = new SessionManager({
-      audioCapture, sttClient, translator: translator as any, noteWriter, correctionDetector
+    terminologyResolver = new TerminologyResolver({
+      getLanguageEntries: () => dictStore?.getEnabledEntries('language') ?? [],
+      getDomainEntries: () => dictStore?.getEnabledEntries('domain') ?? [],
     });
+    const sessionManager = new SessionManager({
+      audioCapture,
+      sttClient,
+      translationGateway,
+      constraintResolver: {
+        resolve: (text) => terminologyResolver?.resolve(text) ?? [],
+      },
+      translator: translator as any,
+      noteRepository,
+      correctionDetector,
+      enhancementOrchestrator,
+    });
+    sessionManager.updateConfig(savedConfig);
 
     let currentSession: Session | null = null;
 
@@ -458,11 +538,21 @@ export function registerAppLifecycle(): void {
     });
 
     sessionManager.onSessionSTTPartial((_sessionId, data) => {
-      const d = data as { sentenceId: string; text: string; isFinal: boolean };
+      const d = data as { sentenceId: string; text: string; isFinal: boolean; timestamp?: number };
       if (d.isFinal) {
-        sendToAllWindows(IPC_CHANNELS.STT_SENTENCE, { sentenceId: d.sentenceId, text: d.text, timestamp: Date.now() });
+        sendToAllWindows(IPC_CHANNELS.STT_SENTENCE, {
+          sentenceId: d.sentenceId,
+          text: d.text,
+          isFinal: true,
+          timestamp: d.timestamp ?? Date.now(),
+        });
       } else {
-        sendToAllWindows(IPC_CHANNELS.STT_PARTIAL, { sentenceId: d.sentenceId, text: d.text, isFinal: false });
+        sendToAllWindows(IPC_CHANNELS.STT_PARTIAL, {
+          sentenceId: d.sentenceId,
+          text: d.text,
+          isFinal: false,
+          timestamp: d.timestamp ?? Date.now(),
+        });
       }
     });
 
@@ -470,8 +560,19 @@ export function registerAppLifecycle(): void {
       sendToAllWindows(IPC_CHANNELS.TRANSLATE_PARTIAL, data);
     });
 
+    sessionManager.onNoteSaved((_sessionId, payload) => {
+      sendToAllWindows(IPC_CHANNELS.NOTE_SAVED, payload);
+    });
+
+    sessionManager.onNoteSummary((_sessionId, payload) => {
+      sendToAllWindows(IPC_CHANNELS.NOTE_SUMMARY, payload);
+    });
+
+    sessionManager.onEnhancementStatus((_sessionId, payload) => {
+      sendToAllWindows(IPC_CHANNELS.ENHANCEMENT_STATUS, payload);
+    });
+
     sessionManager.onSessionTranslateFinal((_sessionId, data) => {
-      const d = data as { sentenceId: string; original: string; translation: string; corrections: unknown[] };
       sendToAllWindows(IPC_CHANNELS.TRANSLATE_FINAL, data);
     });
 
@@ -479,16 +580,11 @@ export function registerAppLifecycle(): void {
       audioCapture,
       sttClient,
       translator,
-      noteWriter,
+      noteRepository,
       correctionDetector,
       sessionManager: {
         createSession(config) {
           currentSession = sessionManager.createSession(config.audioSource);
-          try {
-            currentSession.notePath = noteWriter.createNoteFile(currentSession);
-          } catch (err) {
-            appLogger.warn('笔记文件创建失败', { error: (err as Error).message });
-          }
           return currentSession;
         },
         startSession(_sessionId) {
@@ -499,7 +595,56 @@ export function registerAppLifecycle(): void {
         resumeSession(_sessionId) { sessionManager.resumeSession(); },
         async endSession(_sessionId) { await sessionManager.endSession(); },
         getSessionState(_sessionId) { return sessionManager.getSessionState(); },
-        updateConfig(config: Partial<AppConfig>) { sessionManager.updateConfig(config); },
+        updateConfig(config: Partial<AppConfig>) {
+          sessionManager.updateConfig(config);
+          if (config.note?.saveDir) {
+            noteReader?.setNotesDir(config.note.saveDir);
+          }
+          if (config.translation?.apiKey) {
+            process.env.NMT_API_KEY = config.translation.apiKey;
+            nmtTranslator.setApiKey(config.translation.apiKey);
+          }
+          if (config.translation?.provider === 'tencent-tmt') {
+            process.env.NMT_API_ENDPOINT = 'http://127.0.0.1:8765';
+            process.env.NMT_MODEL = 'tencent-tmt';
+            nmtTranslator.setApiEndpoint('http://127.0.0.1:8765');
+            nmtTranslator.setModel('tencent-tmt');
+            void tencentTmtAdapterServer?.start();
+          } else {
+            if (config.translation?.apiEndpoint) {
+              process.env.NMT_API_ENDPOINT = config.translation.apiEndpoint;
+              nmtTranslator.setApiEndpoint(config.translation.apiEndpoint);
+            }
+            if (config.translation?.model) {
+              process.env.NMT_MODEL = config.translation.model;
+              nmtTranslator.setModel(config.translation.model);
+            }
+          }
+          if (config.translation?.targetLanguage) {
+            nmtTranslator.setTargetLanguage(config.translation.targetLanguage);
+          }
+          if (config.llm?.apiKey !== undefined) {
+            process.env.LLM_API_KEY = config.llm.apiKey;
+            translator.setApiKey(config.llm.apiKey);
+          }
+          if (config.llm?.apiEndpoint) {
+            process.env.LLM_API_ENDPOINT = config.llm.apiEndpoint;
+            translator.setApiEndpoint(config.llm.apiEndpoint);
+          }
+          if (config.llm?.model) {
+            process.env.LLM_MODEL = config.llm.model;
+            translator.setModel(config.llm.model);
+          }
+          if (config.vector?.apiKey !== undefined) {
+            embeddingClient?.setApiKey(config.vector.apiKey);
+          }
+          if (config.vector?.apiEndpoint) {
+            embeddingClient?.setApiEndpoint(config.vector.apiEndpoint);
+          }
+          if (config.vector?.model) {
+            embeddingClient?.setModel(config.vector.model);
+          }
+        },
         async triggerSummary() { await sessionManager.triggerSummary(); },
       },
     };

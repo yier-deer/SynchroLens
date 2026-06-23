@@ -1,6 +1,7 @@
 import { contextBridge, ipcRenderer } from 'electron';
 import { IPC_CHANNELS } from '../shared/ipcChannels';
 import { LOG_CHANNELS } from '../shared/logIpcChannels';
+import type { DictionaryFileInfo, DictType, PersonalDictStatus } from '../shared/types';
 import type { LogLevel } from '../shared/logTypes';
 
 const listenerMap = new Map<string, Set<(...args: unknown[]) => void>>();
@@ -34,11 +35,13 @@ export interface SynchroLensAPI {
   searchFavorites(query: string): Promise<unknown[]>;
   exportFavorites(ids: string[], savePath: string): Promise<void>;
   submitImprovement(original: string, improved: string, reason: string, context: string): Promise<void>;
-  isPersonalDictEnabled(): Promise<boolean>;
-  loadDictionaryFile(dictType: string, filePath: string): Promise<void>;
-  removeDictionaryFile(dictType: string, filePath: string): Promise<void>;
-  getDictionaryEntries(dictType: string): Promise<unknown[]>;
-  removeDictionaryEntry(dictType: string, entryId: string): Promise<void>;
+  getPersonalDictStatus(): Promise<PersonalDictStatus>;
+  listDictionaryFiles(dictType: Exclude<DictType, 'personal'>): Promise<DictionaryFileInfo[]>;
+  loadDictionaryFile(dictType: Exclude<DictType, 'personal'>, filePath: string): Promise<DictionaryFileInfo>;
+  removeDictionaryFile(dictType: Exclude<DictType, 'personal'>, filePath: string): Promise<void>;
+  toggleDictionaryFile(dictType: Exclude<DictType, 'personal'>, filePath: string, enabled: boolean): Promise<void>;
+  getDictionaryEntries(dictType: DictType): Promise<unknown[]>;
+  removeDictionaryEntry(dictType: DictType, entryId: string): Promise<void>;
   listNotes(dirPath?: string): Promise<unknown[]>;
   readNote(filePath: string): Promise<string>;
   exportAllNotes(savePath: string): Promise<void>;
@@ -95,10 +98,12 @@ function buildAPI(): SynchroLensAPI {
     exportFavorites(ids, savePath) { return ipcRenderer.invoke(IPC_CHANNELS.FAVORITE_EXPORT, { ids, savePath }); },
 
     submitImprovement(original, improved, reason, context) { return ipcRenderer.invoke(IPC_CHANNELS.IMPROVE_SUBMIT, { original, improved, reason, context }); },
-    isPersonalDictEnabled() { return ipcRenderer.invoke(IPC_CHANNELS.PERSONAL_DICT_STATUS); },
+    getPersonalDictStatus() { return ipcRenderer.invoke(IPC_CHANNELS.PERSONAL_DICT_STATUS); },
 
+    listDictionaryFiles(dictType) { return ipcRenderer.invoke(IPC_CHANNELS.DICTIONARY_FILES_LIST, { dictType }); },
     loadDictionaryFile(dictType, filePath) { return ipcRenderer.invoke(IPC_CHANNELS.DICTIONARY_FILE_LOAD, { dictType, filePath }); },
     removeDictionaryFile(dictType, filePath) { return ipcRenderer.invoke(IPC_CHANNELS.DICTIONARY_FILE_REMOVE, { dictType, filePath }); },
+    toggleDictionaryFile(dictType, filePath, enabled) { return ipcRenderer.invoke(IPC_CHANNELS.DICTIONARY_FILE_TOGGLE, { dictType, filePath, enabled }); },
     getDictionaryEntries(dictType) { return ipcRenderer.invoke(IPC_CHANNELS.DICTIONARY_ENTRIES_GET, { dictType }); },
     removeDictionaryEntry(dictType, entryId) { return ipcRenderer.invoke(IPC_CHANNELS.DICTIONARY_ENTRY_REMOVE, { dictType, entryId }); },
 
