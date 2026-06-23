@@ -3,7 +3,6 @@ import {
   sendToAllWindows,
   setModuleRegistry,
   setBrowserWindows,
-  ModuleRegistry,
 } from '../../../src/main/ipc/handlers';
 
 jest.mock('electron', () => ({
@@ -42,10 +41,9 @@ describe('ipc handlers 通道处理器', () => {
         generateSummary: jest.fn(),
         setApiKey: jest.fn(),
       },
-      noteWriter: {
-        createNoteFile: jest.fn(),
-        appendEntry: jest.fn(),
-        appendSummary: jest.fn(),
+      noteRepository: {
+        createSessionNote: jest.fn(),
+        appendSentence: jest.fn(),
       },
       correctionDetector: {
         checkConsistency: jest.fn(),
@@ -61,7 +59,7 @@ describe('ipc handlers 通道处理器', () => {
         updateConfig: jest.fn(),
         triggerSummary: jest.fn(),
       },
-    };
+    } as any;
   });
 
   describe('registerIPCHandlers', () => {
@@ -73,7 +71,7 @@ describe('ipc handlers 通道处理器', () => {
       expect(ipcMain.handle).toHaveBeenCalledWith('session:start', expect.any(Function));
     });
 
-    it('应该在注册后设置5个 ipcMain.handle 通道', () => {
+    it('应该在注册后设置6个 ipcMain.handle 通道', () => {
       const { ipcMain } = require('electron');
       registerIPCHandlers();
 
@@ -81,8 +79,10 @@ describe('ipc handlers 通道处理器', () => {
       expect(channels).toContain('session:start');
       expect(channels).toContain('session:stop');
       expect(channels).toContain('session:pause');
+      expect(channels).toContain('session:resume');
       expect(channels).toContain('config:update');
       expect(channels).toContain('summary:trigger');
+      expect(channels).toContain('session:resume');
     });
   });
 
@@ -154,7 +154,7 @@ describe('ipc handlers 通道处理器', () => {
         (call: unknown[]) => call[0] === 'config:update',
       )?.[1];
 
-      const config = { translation: { targetLanguage: 'en-US' } };
+      const config = { note: { saveDir: 'D:/fresh-notes' } };
       await handler({}, config);
       expect(mockRegistry.sessionManager.updateConfig).toHaveBeenCalledWith(config);
     });
