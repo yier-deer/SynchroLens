@@ -79,9 +79,9 @@ export class EmbeddingClient {
         signal: AbortSignal.timeout(30000),
       });
       if (!response.ok) {
-        const errorBody = await response.text().catch(() => '');
-        this.l.error('Embedding API 请求失败', { status: response.status, body: errorBody.substring(0, 200) });
-        throw new Error(`Embedding API 错误: ${response.status} - ${errorBody.substring(0, 100)}`);
+        const eb = await response.text().catch(() => '');
+        this.l.error('Embedding API 请求失败', { status: response.status, body: eb.substring(0, 200) });
+        throw new Error(`Embedding API 错误: ${response.status} - ${eb.substring(0, 100)}`);
       }
 
       const data = await response.json() as EmbeddingApiResponse;
@@ -109,9 +109,7 @@ export class EmbeddingClient {
 
 export function cosineSimilarity(a: number[], b: number[]): number {
   if (a.length !== b.length) return 0;
-  let dot = 0;
-  let na = 0;
-  let nb = 0;
+  let dot = 0, na = 0, nb = 0;
   for (let i = 0; i < a.length; i++) {
     dot += a[i] * b[i];
     na += a[i] * a[i];

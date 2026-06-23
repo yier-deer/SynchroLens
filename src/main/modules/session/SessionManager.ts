@@ -1,12 +1,22 @@
-/**
- * 会话生命周期管理器
- * 负责创建/启动/暂停/停止翻译会话，编排各管道模块的协作
- */
-
+import type {
+  AppConfig,
+  CorrectionResult,
+  EnhancementStatusPayload,
+  NoteSavedPayload,
+  NoteSummaryPayload,
+  Session,
+  SessionState,
+  STTResult,
+  TranslatePartialPayload,
+  TranslationConstraint,
+  TranslationResult,
+} from '../../../shared/types';
+import { AudioFrameBuffer } from '../audio/AudioFrameBuffer';
+import { EnhancementOrchestrator } from '../enhancement/EnhancementOrchestrator';
+import { SentenceAssembler } from '../stt/SentenceAssembler';
+import type { ISTTClient, STTClientState, STTResultMetadata } from '../stt/types';
 import { createLogger } from '../../utils/logger';
-import type { Session, SessionState, AppConfig, STTResult, TranslationResult } from '../../../shared/types';
 
-/** 音频采集模块接口 */
 interface IAudioCapture {
   start(source: 'system' | 'microphone', deviceId?: string): Promise<void>;
   stop(): void;
@@ -14,429 +24,783 @@ interface IAudioCapture {
   get isRunning(): boolean;
 }
 
-/** STT 客户端接口 */
-interface ISTTClient {
-  connect(config: { appId: string; apiKey: string; apiSecret: string }): void;
-  sendAudio(pcmChunk: Int16Array): void;
-  disconnect(): void;
-  onResult(callback: (text: string, isFinal: boolean, sentenceId: string) => void): void;
-  get isConnected(): boolean;
-  language?: string;
+interface INoteRepository {
+  createSessionNote(session: Session, saveDir: string): Promise<string>;
+  appendSentence(filePath: string, sentence: STTResult | (TranslationResult & { timestamp: number })): Promise<void>;
+  appendSummary?(filePath: string, summary: string): Promise<void>;
 }
 
-/** 翻译客户端接口 */
-interface ITranslator {
-  translate(text: string, context: { original: string; translation: string }[]): AsyncGenerator<string>;
-  buildContextWindow(recentTranslations: { original: string; translation: string }[], maxCount: number): string;
-  translateFull(text: string, context: { original: string; translation: string }[]): Promise<string>;
+interface ITranslationGateway {
+  translateSentence(
+    sentence: STTResult,
+    options?: {
+      constraints?: TranslationConstraint[];
+      onPartial?: (payload: TranslatePartialPayload & { original: string; constraints: TranslationConstraint[] }) => void;
+      signal?: AbortSignal;
+    },
+  ): Promise<TranslationResult>;
+  reset(): void;
+  updateWindowSize(size: number): void;
+}
+
+interface IConstraintResolver {
+  resolve(text: string): Promise<TranslationConstraint[]> | TranslationConstraint[];
+}
+
+export interface ITranslator {
   generateSummary(sentences: TranslationResult[]): Promise<string>;
-  setApiKey(key: string): void;
-  model?: string;
-  targetLanguage?: string;
 }
 
-/** 笔记写入模块接口 */
-interface INoteWriter {
-  createNoteFile(session: Session): string;
-  appendEntry(filePath: string, original: string, translation: string, timestamp: number): Promise<void>;
-  appendSummary(filePath: string, summary: string): Promise<void>;
-  writeHeader(filePath: string, session: { startTime: number; audioSource: string }, sentenceCount: number, duration: string): Promise<void>;
-}
-
-/** 纠正检测模块接口 */
 interface ICorrectionDetector {
-  checkConsistency(translations: { sentenceId: string; original: string; translation: string }[]): Promise<{ sentenceId: string; from: string; to: string; reason: string }[]>;
+  checkConsistency(translations: TranslationResult[]): Promise<CorrectionResult[]>;
   shouldCheck(sentenceCount: number): boolean;
-  get currentSentenceCount(): number;
 }
 
-/** 模块依赖注册表 */
+interface IEnhancementOrchestrator {
+  runSummary(params: {
+    config?: Partial<AppConfig['enhancement']> | null;
+    sessionId: string;
+    translations: TranslationResult[];
+    notePath?: string;
+    translator?: ITranslator;
+    noteRepository?: INoteRepository;
+    emitStatus: (sessionId: string, payload: EnhancementStatusPayload) => void;
+    onSummary?: (summary: string) => void;
+  }): Promise<void>;
+  runCorrection(params: {
+    config?: Partial<AppConfig['enhancement']> | null;
+    sessionId: string;
+    translations: TranslationResult[];
+    correctionDetector?: ICorrectionDetector;
+    emitStatus: (sessionId: string, payload: EnhancementStatusPayload) => void;
+  }): Promise<void>;
+  runRecommendation(params: {
+    config?: Partial<AppConfig['enhancement']> | null;
+    sessionId: string;
+    translations: TranslationResult[];
+    emitStatus: (sessionId: string, payload: EnhancementStatusPayload) => void;
+  }): Promise<void>;
+}
+
 export interface SessionDependencies {
   audioCapture: IAudioCapture;
   sttClient: ISTTClient;
-  translator: ITranslator;
-  noteWriter: INoteWriter;
-  correctionDetector: ICorrectionDetector;
+  translationGateway?: ITranslationGateway;
+  constraintResolver?: IConstraintResolver;
+  translator?: ITranslator;
+  noteWriter?: unknown;
+  noteRepository?: INoteRepository;
+  correctionDetector?: ICorrectionDetector;
+  enhancementOrchestrator?: IEnhancementOrchestrator;
 }
 
-/** 事件回调类型 */
 export type SessionEventCallback = (sessionId: string, data?: unknown) => void;
 
-/** 内部会话记录 */
 interface ActiveSession {
   session: Session;
+  frameBuffer: AudioFrameBuffer;
+  assembler: SentenceAssembler;
   unsubscribeAudio: (() => void) | null;
+  unsubscribeAssembler: (() => void) | null;
+  pendingNoteWrite: Promise<void>;
+  translationQueue: STTResult[];
+  translationLoopPromise: Promise<void> | null;
+  translationAbortController: AbortController | null;
+  partialTranslationAbortController: AbortController | null;
+  lastPartialTranslationTextBySentenceId: Map<string, string>;
+  partialTranslationVersionBySentenceId: Map<string, number>;
+  translationPaused: boolean;
+  enhancementEpoch: number;
 }
 
-/** 生成唯一会话 ID */
 function generateSessionId(): string {
   return `session-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 }
 
-/**
- * 会话生命周期管理器
- */
-export class SessionManager {
-  private l = createLogger('SessionManager');
-  private deps: SessionDependencies;
-  private activeSession: ActiveSession | null = null;
-  private config: AppConfig | null = null;
-  private sentenceCount = 0;
-  /** 当前句子的累积文本（跨 STT 断连保持） */
-  private partialCache = { text: '', sentenceId: '', lastUpdate: 0 };
-  /** 上次触发翻译的时间 */
-  private lastTranslationTime = 0;
-  /** 周期性翻译定时器 */
-  private translationTimer: ReturnType<typeof setInterval> | null = null;
-  private onStateChangeCallbacks: Set<SessionEventCallback> = new Set();
-  private onSTTPartialCallbacks: Set<SessionEventCallback> = new Set();
-  private onTranslatePartialCallbacks: Set<SessionEventCallback> = new Set();
-  private onTranslateFinalCallbacks: Set<SessionEventCallback> = new Set();
-  private onNoteSaved: SessionEventCallback | null = null;
-  private onSummary: SessionEventCallback | null = null;
+function readSTTConfig(config: Partial<AppConfig> | null): {
+  appId: string;
+  apiKey: string;
+  apiSecret: string;
+  language: string;
+} {
+  return {
+    appId: config?.stt?.appId ?? process.env.XFYUN_APP_ID ?? '',
+    apiKey: config?.stt?.apiKey ?? process.env.XFYUN_API_KEY ?? '',
+    apiSecret: config?.stt?.apiSecret ?? process.env.XFYUN_API_SECRET ?? '',
+    language: config?.stt?.language ?? 'zh_cn',
+  };
+}
 
-  constructor(deps: SessionDependencies) {
-    this.deps = deps;
+function mergeConfig(current: Partial<AppConfig> | null, next: Partial<AppConfig>): Partial<AppConfig> {
+  return {
+    ...(current ?? {}),
+    ...next,
+    general: { ...(current?.general ?? {}), ...(next.general ?? {}) } as AppConfig['general'],
+    stt: { ...(current?.stt ?? {}), ...(next.stt ?? {}) } as AppConfig['stt'],
+    translation: { ...(current?.translation ?? {}), ...(next.translation ?? {}) } as AppConfig['translation'],
+    vector: { ...(current?.vector ?? {}), ...(next.vector ?? {}) } as AppConfig['vector'],
+    note: { ...(current?.note ?? {}), ...(next.note ?? {}) } as AppConfig['note'],
+    enhancement: { ...(current?.enhancement ?? {}), ...(next.enhancement ?? {}) } as AppConfig['enhancement'],
+    audio: { ...(current?.audio ?? {}), ...(next.audio ?? {}) } as AppConfig['audio'],
+  };
+}
+
+function isAbortError(error: unknown): boolean {
+  if (error instanceof DOMException) {
+    return error.name === 'AbortError';
   }
 
-  /** 创建新会话 */
+  const message = error instanceof Error ? error.message : String(error);
+  return message.toLowerCase().includes('abort');
+}
+
+export class SessionManager {
+  private l = createLogger('SessionManager');
+  private activeSession: ActiveSession | null = null;
+  private lastCompletedSession: Session | null = null;
+  private config: Partial<AppConfig> | null = null;
+  private currentState: SessionState = 'idle';
+  private stateCallbacks = new Set<SessionEventCallback>();
+  private transcriptCallbacks = new Set<SessionEventCallback>();
+  private noteSavedCallbacks = new Set<SessionEventCallback>();
+  private noteSummaryCallbacks = new Set<SessionEventCallback>();
+  private enhancementStatusCallbacks = new Set<SessionEventCallback>();
+  private translatePartialCallbacks = new Set<SessionEventCallback>();
+  private translateFinalCallbacks = new Set<SessionEventCallback>();
+
+  constructor(private deps: SessionDependencies) {
+    this.deps.enhancementOrchestrator ??= new EnhancementOrchestrator();
+    this.deps.sttClient.onResult((text, isFinal, sentenceId, metadata) => {
+      this.handleSTTResult(text, isFinal, sentenceId, metadata);
+    });
+    this.deps.sttClient.onError?.((error) => {
+      this.handleSTTError(error);
+    });
+    this.deps.sttClient.onClose?.(() => {
+      this.handleSTTClose();
+    });
+    this.deps.sttClient.onStateChange?.((state) => {
+      this.handleSTTStateChange(state);
+    });
+  }
+
   createSession(audioSource: 'system' | 'microphone'): Session {
-    const id = generateSessionId();
     const session: Session = {
-      id,
+      id: generateSessionId(),
       startTime: Date.now(),
       audioSource,
       sentences: [],
     };
-    this.l.info('会话已创建', { id, audioSource });
+
+    this.l.info('会话已创建', { id: session.id, audioSource });
     return session;
   }
 
-  /** 启动翻译会话 */
   async startSession(session: Session): Promise<void> {
+    if (this.activeSession) {
+      await this.endSession();
+    }
+
     this.l.info('会话启动中', { id: session.id });
 
-    try {
-      const appId = process.env.XFYUN_APP_ID || '';
-      const apiKey = process.env.XFYUN_API_KEY || '';
-      const apiSecret = process.env.XFYUN_API_SECRET || '';
-      this.deps.sttClient.connect({ appId, apiKey, apiSecret });
-
-      try {
-        await this.deps.audioCapture.start(session.audioSource as 'system' | 'microphone');
-      } catch (audioErr) {
-        this.l.error('音频采集启动失败，断开 STT', { error: (audioErr as Error).message });
-        this.deps.sttClient.disconnect();
-        throw audioErr;
-      }
-
-      // 2. 建立管线：Audio → STT
-      const unsubscribe = this.deps.audioCapture.onData((pcmBuffer) => {
-        this.deps.sttClient.sendAudio(pcmBuffer);
-      });
-
-      // 3. STT 结果 → 累积 + 翻译
-      this.deps.sttClient.onResult((text, isFinal, sentenceId) => {
-        if (!isFinal) {
-          // 累积到缓存中
-          if (text) {
-            this.partialCache.text += text;
-            this.partialCache.sentenceId = sentenceId;
-            this.partialCache.lastUpdate = Date.now();
-          }
-          for (const cb of this.onSTTPartialCallbacks) {
-            cb(session.id, { sentenceId, text: this.partialCache.text, isFinal: false });
-          }
-          return;
-        }
-
-        // 如果是 isFinal 或定时器触发 → 翻译累积文本
-        const fullText = text || this.partialCache.text;
-        if (fullText.trim()) {
-          const context = session.sentences.slice(-5).filter((s) => s.isFinal);
-          this.translateSentence(session, sentenceId || this.partialCache.sentenceId, fullText.trim(), context);
-          this.partialCache = { text: '', sentenceId: '', lastUpdate: 0 };
-        }
-      });
-
-      this.activeSession = {
-        session: { ...session, sentences: [...session.sentences] },
-        unsubscribeAudio: unsubscribe,
-      };
-
-      this.sentenceCount = 0;
-
-      // 周期性扫描翻译：每 1.5s 检查是否有累积文本可提交
-      this.translationTimer = setInterval(() => {
-        if (!this.activeSession) return;
-        const text = this.partialCache.text.trim();
-        if (!text || text.length < 3) return;
-        const elapsed = Date.now() - this.partialCache.lastUpdate;
-        const sinceLast = Date.now() - this.lastTranslationTime;
-        // 文本在增长但超过 1.5s 无更新 → 触发翻译
-        if (elapsed >= 1500 && sinceLast >= 2000) {
-          this.l.info('周期触发翻译', { text: text.substring(0, 60), elapsed, sinceLast });
-          const ctx = this.activeSession.session.sentences.slice(-5).filter((s) => s.isFinal);
-          this.translateSentence(this.activeSession.session, this.partialCache.sentenceId, text, ctx);
-          this.partialCache = { text: '', sentenceId: '', lastUpdate: 0 };
-        }
-      }, 1500);
-
-      for (const cb of this.onStateChangeCallbacks) {
-        cb(session.id, 'running');
-      }
-
-      this.l.info('会话已启动', { id: session.id });
-    } catch (err) {
-      this.l.error('会话启动失败', { error: (err as Error).message });
-      throw err;
+    this.deps.translationGateway?.reset();
+    if (this.config?.translation?.contextWindowSize) {
+      this.deps.translationGateway?.updateWindowSize(this.config.translation.contextWindowSize);
     }
+
+    const frameBuffer = new AudioFrameBuffer();
+    const assembler = new SentenceAssembler();
+    const activeSession: ActiveSession = {
+      session: { ...session, sentences: [...session.sentences] },
+      frameBuffer,
+      assembler,
+      unsubscribeAudio: null,
+      unsubscribeAssembler: null,
+      pendingNoteWrite: Promise.resolve(),
+      translationQueue: [],
+      translationLoopPromise: null,
+      translationAbortController: null,
+      partialTranslationAbortController: null,
+      lastPartialTranslationTextBySentenceId: new Map(),
+      partialTranslationVersionBySentenceId: new Map(),
+      translationPaused: false,
+      enhancementEpoch: 0,
+    };
+
+    const noteSaveDir = this.config?.note?.saveDir?.trim();
+    if (this.deps.noteRepository && noteSaveDir) {
+      activeSession.session.notePath = await this.deps.noteRepository.createSessionNote(
+        { ...activeSession.session },
+        noteSaveDir,
+      );
+      this.emitNoteSaved(activeSession.session.id, activeSession.session.notePath);
+    }
+
+    const unsubscribeAssembler = assembler.onSentence((result) => {
+      void this.handleSentenceResult(activeSession, result);
+    });
+
+    const unsubscribeAudio = this.deps.audioCapture.onData((pcmBuffer) => {
+      frameBuffer.push(pcmBuffer);
+    });
+    frameBuffer.onFrame((frame) => {
+      this.deps.sttClient.sendAudio(frame);
+    });
+
+    activeSession.unsubscribeAudio = unsubscribeAudio;
+    activeSession.unsubscribeAssembler = unsubscribeAssembler;
+    this.activeSession = activeSession;
+
+    const sttConfig = readSTTConfig(this.config);
+    this.deps.sttClient.connect(sttConfig);
+    await this.deps.audioCapture.start(session.audioSource as 'system' | 'microphone');
+    this.l.info('会话已启动', { id: session.id });
   }
 
-  /** 暂停会话 */
   pauseSession(): void {
-    if (this.activeSession) {
-      this.l.info('会话已暂停', { id: this.activeSession.session.id });
-      this.deps.audioCapture.stop();
-      for (const cb of this.onStateChangeCallbacks) {
-        cb(this.activeSession.session.id, 'paused');
-      }
-    }
-  }
-
-  /** 恢复会话 */
-  resumeSession(): void {
-    if (this.activeSession) {
-      this.l.info('会话已恢复', { id: this.activeSession.session.id });
-      const source = this.activeSession.session.audioSource;
-      this.deps.audioCapture.start(source as 'system' | 'microphone');
-      for (const cb of this.onStateChangeCallbacks) {
-        cb(this.activeSession.session.id, 'running');
-      }
-    }
-  }
-
-  /** 结束会话 */
-  async endSession(): Promise<void> {
     if (!this.activeSession) {
-      this.l.warn('endSession 被调用但没有活跃会话');
       return;
     }
 
-    this.l.info('会话结束中', { id: this.activeSession.session.id });
+    this.l.info('会话已暂停', { id: this.activeSession.session.id });
+    this.activeSession.translationPaused = true;
+    this.activeSession.translationAbortController?.abort();
+    this.cancelPartialTranslation(this.activeSession);
+    this.deps.audioCapture.stop();
+    this.deps.sttClient.disconnect();
+    this.activeSession.frameBuffer.reset();
+    this.setState('paused');
+  }
 
-    if (this.translationTimer) {
-      clearInterval(this.translationTimer);
-      this.translationTimer = null;
+  resumeSession(): void {
+    if (!this.activeSession) {
+      return;
     }
 
-    // flush 剩余累积文本
-    const remaining = this.partialCache.text.trim();
-    if (remaining.length >= 3) {
-      this.l.info('结束前 flush 剩余句', { text: remaining.substring(0, 60) });
-      const ctx = this.activeSession.session.sentences.slice(-5).filter((s) => s.isFinal);
-      await this.translateSentence(this.activeSession.session, this.partialCache.sentenceId, remaining, ctx);
+    this.l.info('会话已恢复', { id: this.activeSession.session.id });
+    this.activeSession.translationPaused = false;
+    const sttConfig = readSTTConfig(this.config);
+    this.deps.sttClient.connect(sttConfig);
+    void this.deps.audioCapture.start(this.activeSession.session.audioSource as 'system' | 'microphone');
+    void this.processTranslationQueue(this.activeSession);
+  }
+
+  async endSession(): Promise<void> {
+    if (!this.activeSession) {
+      this.l.warn('endSession called without an active session');
+      return;
     }
-    this.partialCache = { text: '', sentenceId: '', lastUpdate: 0 };
+
+    const activeSession = this.activeSession;
+    this.l.info('会话结束中', { id: activeSession.session.id });
+
+    activeSession.translationPaused = false;
 
     try {
       this.deps.audioCapture.stop();
-      this.l.debug('音频已停止');
-    } catch (err) {
-      this.l.error('停止音频采集失败', { error: (err as Error).message });
+    } catch {
+      // ignore audio shutdown issues during session stop
     }
 
     try {
       this.deps.sttClient.disconnect();
-      this.l.debug('STT 已断开');
-    } catch (err) {
-      this.l.error('断开 STT 失败', { error: (err as Error).message });
+    } catch {
+      // ignore websocket shutdown issues during session stop
     }
 
-    if (this.activeSession.unsubscribeAudio) {
-      this.activeSession.unsubscribeAudio();
-    }
+    activeSession.assembler.flush();
+    await activeSession.pendingNoteWrite;
+    await this.processTranslationQueue(activeSession);
+    await activeSession.pendingNoteWrite;
 
-    this.activeSession.session.endTime = Date.now();
-
-    for (const cb of this.onStateChangeCallbacks) {
-      cb(this.activeSession.session.id, 'stopped');
-    }
-
-    this.l.info('会话已结束', { id: this.activeSession.session.id, sentenceCount: this.sentenceCount });
-    this.activeSession = null;
-    this.sentenceCount = 0;
-  }
-
-  /** 获取会话状态 */
-  getSessionState(): SessionState {
-    if (!this.activeSession) return 'idle';
-    if (this.deps.audioCapture.isRunning) return 'running';
-    return 'paused';
-  }
-
-  /** 获取当前活跃会话 */
-  get currentSession(): Session | null {
-    return this.activeSession ? this.activeSession.session : null;
-  }
-
-  /** 注册状态变更回调 */
-  onSessionStateChange(callback: SessionEventCallback): () => void {
-    this.onStateChangeCallbacks.add(callback);
-    return () => { this.onStateChangeCallbacks.delete(callback); };
-  }
-
-  /** 注册 STT 中间结果回调 */
-  onSessionSTTPartial(callback: SessionEventCallback): () => void {
-    this.onSTTPartialCallbacks.add(callback);
-    return () => { this.onSTTPartialCallbacks.delete(callback); };
-  }
-
-  /** 注册翻译流式结果回调 */
-  onSessionTranslatePartial(callback: SessionEventCallback): () => void {
-    this.onTranslatePartialCallbacks.add(callback);
-    return () => { this.onTranslatePartialCallbacks.delete(callback); };
-  }
-
-  /** 注册翻译最终结果回调 */
-  onSessionTranslateFinal(callback: SessionEventCallback): () => void {
-    this.onTranslateFinalCallbacks.add(callback);
-    return () => { this.onTranslateFinalCallbacks.delete(callback); };
-  }
-
-  /** 触发摘要生成 */
-  async triggerSummary(): Promise<void> {
-    if (!this.activeSession) return;
-
-    this.l.info('触发摘要生成');
-
-    try {
-      const finalSentences = this.activeSession.session.sentences.filter((s) => s.isFinal);
-      if (finalSentences.length === 0) return;
-
-      const summary = await this.deps.translator.generateSummary(finalSentences);
-      this.activeSession.session.summary = summary;
-
-      if (this.activeSession.session.notePath) {
-        await this.deps.noteWriter.appendSummary(this.activeSession.session.notePath, summary);
-      }
-
-      if (this.onSummary) {
-        this.onSummary(this.activeSession.session.id, summary);
-      }
-    } catch (err) {
-      this.l.error('摘要生成失败', { error: (err as Error).message });
-    }
-  }
-
-  /** 更新配置 */
-  updateConfig(config: Partial<AppConfig>): void {
-    this.config = { ...this.config, ...config } as AppConfig;
-    if (config.stt?.appId) process.env.XFYUN_APP_ID = config.stt.appId;
-    if (config.stt?.apiKey) process.env.XFYUN_API_KEY = config.stt.apiKey;
-    if (config.stt?.apiSecret) process.env.XFYUN_API_SECRET = config.stt.apiSecret;
-    if (config.stt?.language) {
-      this.deps.sttClient.language = config.stt.language;
-      if (typeof (this.deps.sttClient as any).setLanguage === 'function') {
-        (this.deps.sttClient as any).setLanguage(config.stt.language);
-      }
-    }
-    if (config.translation?.apiKey) {
-      process.env.DEEPSEEK_API_KEY = config.translation.apiKey;
-      this.deps.translator.setApiKey(config.translation.apiKey);
-    }
-    if (config.translation?.model) this.deps.translator['model'] = config.translation.model;
-    if (config.translation?.targetLanguage) this.deps.translator['targetLanguage'] = config.translation.targetLanguage;
-  }
-
-  /**
-   * 执行单句翻译流程
-   * 流式翻译 → 中间结果推送 → 最终结果写入笔记 → 纠正检测
-   */
-  private async translateSentence(
-    session: Session,
-    sentenceId: string,
-    text: string,
-    context: { original: string; translation: string }[],
-  ): Promise<void> {
-    this.lastTranslationTime = Date.now();
-
-    const tempResult: TranslationResult = {
-      sentenceId,
-      original: text,
-      translation: '',
-      isFinal: false,
-      corrections: [],
+    activeSession.frameBuffer.reset();
+    activeSession.assembler.reset();
+    activeSession.enhancementEpoch += 1;
+    activeSession.translationAbortController?.abort();
+    this.cancelPartialTranslation(activeSession);
+    activeSession.unsubscribeAudio?.();
+    activeSession.unsubscribeAssembler?.();
+    activeSession.session.endTime = Date.now();
+    this.lastCompletedSession = {
+      ...activeSession.session,
+      sentences: activeSession.session.sentences.map((sentence) => ({
+        ...sentence,
+        corrections: [...sentence.corrections],
+        constraints: sentence.constraints ? [...sentence.constraints] : [],
+      })),
     };
 
+    this.activeSession = null;
+    this.setState('stopped');
+    this.l.info('会话已结束', {
+      id: activeSession.session.id,
+      sentenceCount: activeSession.session.sentences.length,
+    });
+  }
+
+  getSessionState(): SessionState {
+    if (!this.activeSession) {
+      return this.currentState === 'stopped' ? 'stopped' : 'idle';
+    }
+
+    return this.currentState;
+  }
+
+  get currentSession(): Session | null {
+    return this.activeSession?.session ?? null;
+  }
+
+  onSessionStateChange(callback: SessionEventCallback): () => void {
+    this.stateCallbacks.add(callback);
+    return () => {
+      this.stateCallbacks.delete(callback);
+    };
+  }
+
+  onSessionTranscript(callback: SessionEventCallback): () => void {
+    this.transcriptCallbacks.add(callback);
+    return () => {
+      this.transcriptCallbacks.delete(callback);
+    };
+  }
+
+  onNoteSaved(callback: SessionEventCallback): () => void {
+    this.noteSavedCallbacks.add(callback);
+    return () => {
+      this.noteSavedCallbacks.delete(callback);
+    };
+  }
+
+  onSessionSTTPartial(callback: SessionEventCallback): () => void {
+    return this.onSessionTranscript(callback);
+  }
+
+  onNoteSummary(callback: SessionEventCallback): () => void {
+    this.noteSummaryCallbacks.add(callback);
+    return () => {
+      this.noteSummaryCallbacks.delete(callback);
+    };
+  }
+
+  onEnhancementStatus(callback: SessionEventCallback): () => void {
+    this.enhancementStatusCallbacks.add(callback);
+    return () => {
+      this.enhancementStatusCallbacks.delete(callback);
+    };
+  }
+
+  onSessionTranslatePartial(callback: SessionEventCallback): () => void {
+    this.translatePartialCallbacks.add(callback);
+    return () => {
+      this.translatePartialCallbacks.delete(callback);
+    };
+  }
+
+  onSessionTranslateFinal(callback: SessionEventCallback): () => void {
+    this.translateFinalCallbacks.add(callback);
+    return () => {
+      this.translateFinalCallbacks.delete(callback);
+    };
+  }
+
+  updateConfig(config: Partial<AppConfig>): void {
+    this.config = mergeConfig(this.config, config);
+    if (config.stt?.language) {
+      this.deps.sttClient.language = config.stt.language;
+      this.deps.sttClient.setLanguage?.(config.stt.language);
+    }
+    if (config.translation?.contextWindowSize) {
+      this.deps.translationGateway?.updateWindowSize(config.translation.contextWindowSize);
+    }
+  }
+
+  async triggerSummary(): Promise<void> {
+    const activeSession = this.activeSession;
+    const targetSession = activeSession?.session ?? this.lastCompletedSession;
+    const enhancement = this.config?.enhancement;
+    if (!targetSession || !this.deps.enhancementOrchestrator) {
+      return;
+    }
+    if (!enhancement?.enabled || !enhancement.summaryEnabled) {
+      return;
+    }
+    if (targetSession.sentences.length === 0) {
+      return;
+    }
+
+    const translations = targetSession.sentences.map((sentence) => ({
+      ...sentence,
+      corrections: [...sentence.corrections],
+      constraints: sentence.constraints ? [...sentence.constraints] : [],
+    }));
+
+    await this.deps.enhancementOrchestrator.runSummary({
+      config: enhancement,
+      sessionId: targetSession.id,
+      translations,
+      notePath: targetSession.notePath,
+      translator: this.deps.translator,
+      noteRepository: this.deps.noteRepository,
+      emitStatus: (targetSessionId, payload) => {
+        this.emitEnhancementStatus(targetSessionId, payload);
+      },
+      onSummary: (summary) => {
+        targetSession.summary = summary;
+        if (this.activeSession?.session.id === targetSession.id) {
+          this.activeSession.session.summary = summary;
+        } else if (this.lastCompletedSession?.id === targetSession.id) {
+          this.lastCompletedSession.summary = summary;
+        }
+        this.emitNoteSummary(targetSession.id, summary);
+      },
+    });
+  }
+
+  private handleSTTResult(
+    text: string,
+    isFinal: boolean,
+    sentenceId: string,
+    _metadata?: STTResultMetadata,
+  ): void {
+    if (!this.activeSession) {
+      return;
+    }
+
+    this.activeSession.assembler.push({
+      sentenceId,
+      text,
+      isFinal,
+      timestamp: Date.now(),
+    });
+  }
+
+  private async handleSentenceResult(activeSession: ActiveSession, result: STTResult): Promise<void> {
+    for (const callback of this.transcriptCallbacks) {
+      callback(activeSession.session.id, result);
+    }
+
+    if (result.isFinal && this.deps.translationGateway) {
+      this.cancelPartialTranslation(activeSession);
+      activeSession.translationQueue.push(result);
+      await this.processTranslationQueue(activeSession);
+    } else if (result.isFinal) {
+      this.queueNoteWrite(activeSession, result);
+    } else if (!result.isFinal && this.deps.translationGateway) {
+      this.schedulePartialTranslation(activeSession, result);
+    }
+  }
+
+  private queueNoteWrite(
+    activeSession: ActiveSession,
+    sentence: STTResult | (TranslationResult & { timestamp: number }),
+  ): void {
+    if (!this.deps.noteRepository || !activeSession.session.notePath) {
+      return;
+    }
+
+    activeSession.pendingNoteWrite = activeSession.pendingNoteWrite.then(async () => {
+      await this.deps.noteRepository?.appendSentence(activeSession.session.notePath!, sentence);
+      this.emitNoteSaved(activeSession.session.id, activeSession.session.notePath!);
+    });
+  }
+
+  private schedulePartialTranslation(activeSession: ActiveSession, result: STTResult): void {
+    const text = result.text.trim();
+    if (!text || activeSession.translationPaused || this.activeSession !== activeSession) {
+      return;
+    }
+
+    if (activeSession.lastPartialTranslationTextBySentenceId.get(result.sentenceId) === text) {
+      return;
+    }
+
+    activeSession.lastPartialTranslationTextBySentenceId.set(result.sentenceId, text);
+    const nextVersion = (activeSession.partialTranslationVersionBySentenceId.get(result.sentenceId) ?? 0) + 1;
+    activeSession.partialTranslationVersionBySentenceId.set(result.sentenceId, nextVersion);
+    activeSession.partialTranslationAbortController?.abort();
+    activeSession.partialTranslationAbortController = null;
+    void this.runPartialTranslation(activeSession, { ...result, text }, nextVersion);
+  }
+
+  private cancelPartialTranslation(activeSession: ActiveSession): void {
+    activeSession.partialTranslationAbortController?.abort();
+    activeSession.partialTranslationAbortController = null;
+  }
+
+  private async runPartialTranslation(
+    activeSession: ActiveSession,
+    result: STTResult,
+    version: number,
+  ): Promise<void> {
+    if (!this.deps.translationGateway || activeSession.translationPaused || this.activeSession !== activeSession) {
+      return;
+    }
+
+    const controller = new AbortController();
+    activeSession.partialTranslationAbortController = controller;
+    const isLatestPartial = () =>
+      activeSession.partialTranslationVersionBySentenceId.get(result.sentenceId) === version;
+
     try {
-      let fullTranslation = '';
-      for await (const token of this.deps.translator.translate(text, context)) {
-        fullTranslation += token;
-        for (const cb of this.onTranslatePartialCallbacks) {
-          cb(session.id, { sentenceId, translation: fullTranslation, original: text });
-        }
-      }
-
-      tempResult.translation = fullTranslation || text;
-      tempResult.isFinal = true;
-
-      this.l.info('句子翻译完成', { sentenceId, original: text.substring(0, 50) });
-
-      // 追加到会话记录
-      session.sentences.push(tempResult);
-      this.sentenceCount++;
-
-      // 写入笔记（如果已有 notePath）
-      if (session.notePath) {
-        await this.deps.noteWriter.appendEntry(
-          session.notePath,
-          text,
-          tempResult.translation,
-          Date.now(),
-        );
-      }
-
-      // 通知最终翻译结果
-      for (const cb of this.onTranslateFinalCallbacks) {
-        cb(session.id, {
-          sentenceId: tempResult.sentenceId,
-          original: tempResult.original,
-          translation: tempResult.translation,
-          corrections: tempResult.corrections,
-        });
-      }
-
-      // 纠正检测
-      if (this.deps.correctionDetector.shouldCheck(1)) {
-        const recentTranslations = session.sentences.slice(-5);
-        const corrections = await this.deps.correctionDetector.checkConsistency(recentTranslations);
-        if (corrections.length > 0 && session.notePath) {
-          for (const corr of corrections) {
-            await this.deps.noteWriter.appendEntry(
-              session.notePath,
-              '',
-              `纠正: ${corr.from} → ${corr.to}`,
-              Date.now(),
-            );
+      const translation = await this.deps.translationGateway.translateSentence(result, {
+        constraints: [],
+        signal: controller.signal,
+        onPartial: (payload) => {
+          if (this.activeSession !== activeSession || activeSession.translationPaused || !isLatestPartial()) {
+            return;
           }
-        }
+          this.emitTranslatePartial(activeSession.session.id, {
+            ...payload,
+            constraints: [],
+          });
+        },
+      });
+
+      if (
+        this.activeSession !== activeSession ||
+        activeSession.translationPaused ||
+        controller.signal.aborted ||
+        !isLatestPartial()
+      ) {
+        return;
       }
-    } catch (err) {
-      this.l.error('句子翻译失败', { sentenceId, error: (err as Error).message });
-      tempResult.translation = text;
-      tempResult.isFinal = true;
-      session.sentences.push(tempResult);
-      this.sentenceCount++;
-      for (const cb of this.onTranslateFinalCallbacks) {
-        cb(session.id, {
-          sentenceId: tempResult.sentenceId,
-          original: tempResult.original,
-          translation: tempResult.translation,
-          corrections: tempResult.corrections,
-          error: (err as Error).message,
+
+      this.emitTranslatePartial(activeSession.session.id, {
+        sentenceId: result.sentenceId,
+        original: result.text,
+        translation: translation.translation,
+        constraints: [],
+      });
+    } catch (error) {
+      if (!isAbortError(error)) {
+        this.l.warn('Partial translation failed', {
+          sentenceId: result.sentenceId,
+          error: error instanceof Error ? error.message : String(error),
         });
       }
+    } finally {
+      if (activeSession.partialTranslationAbortController === controller) {
+        activeSession.partialTranslationAbortController = null;
+      }
+    }
+  }
+
+  private async processTranslationQueue(activeSession: ActiveSession): Promise<void> {
+    if (!this.deps.translationGateway) {
+      return;
+    }
+
+    const existingLoop = activeSession.translationLoopPromise;
+    if (existingLoop) {
+      await existingLoop;
+      if (activeSession.translationLoopPromise === existingLoop) {
+        activeSession.translationLoopPromise = null;
+      }
+    }
+
+    if (
+      activeSession.translationLoopPromise ||
+      activeSession.translationPaused ||
+      activeSession.translationQueue.length === 0 ||
+      this.activeSession !== activeSession
+    ) {
+      return;
+    }
+
+    activeSession.translationLoopPromise = (async () => {
+      while (activeSession.translationQueue.length > 0) {
+        if (activeSession.translationPaused) {
+          break;
+        }
+
+        const sentence = activeSession.translationQueue[0];
+        const controller = new AbortController();
+        activeSession.translationAbortController = controller;
+
+        try {
+          const constraints = await this.resolveTranslationConstraints(sentence);
+          const translation = await this.deps.translationGateway!.translateSentence(sentence, {
+            constraints,
+            signal: controller.signal,
+            onPartial: (payload) => {
+              if (this.activeSession !== activeSession || activeSession.translationPaused) {
+                return;
+              }
+              this.emitTranslatePartial(activeSession.session.id, payload);
+            },
+          });
+
+          activeSession.translationQueue.shift();
+          activeSession.session.sentences.push(translation);
+          this.queueNoteWrite(activeSession, {
+            ...translation,
+            timestamp: sentence.timestamp,
+          });
+          this.emitTranslateFinal(activeSession.session.id, translation);
+          this.dispatchPostTranslationEnhancements(activeSession);
+        } catch (error) {
+          if (isAbortError(error)) {
+            if (!activeSession.translationPaused) {
+              activeSession.translationQueue.shift();
+            }
+            break;
+          }
+
+          throw error;
+        } finally {
+          activeSession.translationAbortController = null;
+        }
+      }
+    })();
+
+    try {
+      await activeSession.translationLoopPromise;
+    } finally {
+      activeSession.translationLoopPromise = null;
+    }
+  }
+
+  private async resolveTranslationConstraints(sentence: STTResult): Promise<TranslationConstraint[]> {
+    if (!this.deps.constraintResolver) {
+      return [];
+    }
+
+    try {
+      const resolved = this.deps.constraintResolver.resolve(sentence.text);
+      return Array.isArray(resolved) ? resolved : await resolved;
+    } catch (error) {
+      this.l.warn('术语约束解析失败，当前句按无约束翻译继续', {
+        sentenceId: sentence.sentenceId,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      return [];
+    }
+  }
+
+  private emitTranslatePartial(
+    sessionId: string,
+    payload: TranslatePartialPayload & { original: string; constraints: TranslationConstraint[] },
+  ): void {
+    for (const callback of this.translatePartialCallbacks) {
+      callback(sessionId, payload);
+    }
+  }
+
+  private emitTranslateFinal(sessionId: string, payload: TranslationResult): void {
+    for (const callback of this.translateFinalCallbacks) {
+      callback(sessionId, payload);
+    }
+  }
+
+  private dispatchPostTranslationEnhancements(activeSession: ActiveSession): void {
+    const enhancement = this.config?.enhancement;
+    if (!enhancement?.enabled || !this.deps.enhancementOrchestrator) {
+      return;
+    }
+
+    const snapshot = activeSession.session.sentences.map((translation) => ({
+      ...translation,
+      corrections: [...translation.corrections],
+      constraints: translation.constraints ? [...translation.constraints] : [],
+    }));
+    const sessionId = activeSession.session.id;
+
+    void this.deps.enhancementOrchestrator.runCorrection({
+      config: enhancement,
+      sessionId,
+      translations: snapshot,
+      correctionDetector: this.deps.correctionDetector,
+      emitStatus: (targetSessionId, payload) => {
+        if (this.activeSession?.session.id !== targetSessionId) {
+          return;
+        }
+        this.emitEnhancementStatus(targetSessionId, payload);
+      },
+    });
+
+    void this.deps.enhancementOrchestrator.runRecommendation({
+      config: enhancement,
+      sessionId,
+      translations: snapshot,
+      emitStatus: (targetSessionId, payload) => {
+        if (this.activeSession?.session.id !== targetSessionId) {
+          return;
+        }
+        this.emitEnhancementStatus(targetSessionId, payload);
+      },
+    });
+  }
+
+  private emitNoteSaved(sessionId: string, filePath: string): void {
+    const payload: NoteSavedPayload = { filePath };
+    for (const callback of this.noteSavedCallbacks) {
+      callback(sessionId, payload);
+    }
+  }
+
+  private emitNoteSummary(sessionId: string, summary: string): void {
+    const payload: NoteSummaryPayload = { summary };
+    for (const callback of this.noteSummaryCallbacks) {
+      callback(sessionId, payload);
+    }
+  }
+
+  private emitEnhancementStatus(sessionId: string, payload: EnhancementStatusPayload): void {
+    for (const callback of this.enhancementStatusCallbacks) {
+      callback(sessionId, payload);
+    }
+  }
+
+  private handleSTTError(error: Error): void {
+    if (!this.activeSession) {
+      return;
+    }
+
+    this.l.error('STT 错误', { error: error.message });
+    this.setState('error');
+  }
+
+  private handleSTTClose(): void {
+    if (!this.activeSession) {
+      return;
+    }
+  }
+
+  private handleSTTStateChange(state: STTClientState): void {
+    if (!this.activeSession) {
+      return;
+    }
+
+    switch (state) {
+      case 'connected':
+        if (this.currentState !== 'paused') {
+          this.setState('listening');
+        }
+        break;
+      case 'recognizing':
+        if (this.currentState !== 'paused') {
+          this.setState('recognizing');
+        }
+        break;
+      case 'reconnecting':
+        if (this.currentState !== 'paused') {
+          this.setState('reconnecting');
+        }
+        break;
+      case 'failed':
+        this.setState('error');
+        break;
+      case 'connecting':
+      default:
+        break;
+    }
+  }
+
+  private setState(state: SessionState): void {
+    this.currentState = state;
+    const sessionId = this.activeSession?.session.id ?? '';
+    for (const callback of this.stateCallbacks) {
+      callback(sessionId, state);
     }
   }
 }

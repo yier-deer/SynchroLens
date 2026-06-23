@@ -41,6 +41,10 @@ export class Translator {
     this.apiKey = key;
   }
 
+  setApiEndpoint(endpoint: string): void {
+    this.baseUrl = endpoint.trim() || this.baseUrl;
+  }
+
   setModel(model: string): void {
     this.model = model;
   }
