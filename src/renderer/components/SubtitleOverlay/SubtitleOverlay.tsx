@@ -1,140 +1,142 @@
-/**
- * 字幕渲染组件
- * 歌词式双语字幕，支持流式显示和纠正动画
- */
+import type { SessionState, STTResult, TranslatePartialPayload, TranslationResult } from '@shared/types';
+import { useStreamingSubtitleText } from './useStreamingSubtitleText';
 
-import { useState, useEffect } from 'react';
-import { UI_CONSTANTS } from '@shared/constants';
-import type { TranslationResult } from '@shared/types';
-
-/** 字幕行样式常量 */
 const STYLE = {
-  dragHandle: {
+  shell: {
+    padding: '12px 20px 16px',
+    background: 'rgba(0, 0, 0, 0.42)',
+    borderRadius: '12px',
+    width: 'min(820px, calc(100vw - 32px))',
+    minHeight: '72px',
+    maxHeight: '260px',
+    color: '#ffffff',
+    display: 'flex',
+    flexDirection: 'column',
+  },
+  handle: {
     width: '100%',
-    height: '20px',
+    height: '18px',
     WebkitAppRegion: 'drag' as const,
-    cursor: 'move',
     display: 'flex',
     justifyContent: 'center',
     alignItems: 'center',
   },
-  dragDot: {
-    width: '30px',
-    height: '3px',
-    borderRadius: '2px',
+  dot: {
+    width: '36px',
+    height: '4px',
+    borderRadius: '999px',
     background: 'rgba(255,255,255,0.25)',
   },
-  container: {
-    padding: '4px 24px 12px 24px',
-    background: 'rgba(0, 0, 0, 0.4)',
-    borderRadius: '8px',
-    maxWidth: '800px',
-    minHeight: '48px',
+  state: {
+    fontSize: '12px',
+    color: '#d1d5db',
+    marginBottom: '8px',
   },
-  source: {
-    fontSize: '14px',
-    color: '#9ca3af',
-    marginBottom: '4px',
-    lineHeight: '1.4',
-  },
-  target: {
-    fontSize: '22px',
-    color: '#ffffff',
+  currentOriginal: {
+    fontSize: '24px',
     fontWeight: 600,
+    lineHeight: '1.45',
+    overflowWrap: 'anywhere' as const,
+    maxHeight: '126px',
+    overflowY: 'hidden' as const,
+  },
+  currentTranslation: {
+    marginTop: '6px',
+    fontSize: '18px',
     lineHeight: '1.4',
+    color: '#93c5fd',
+    overflowWrap: 'anywhere' as const,
+    maxHeight: '76px',
+    overflowY: 'hidden' as const,
   },
-  cursor: {
-    display: 'inline-block',
-    width: '2px',
-    height: '1.1em',
-    backgroundColor: '#60a5fa',
-    marginLeft: '2px',
-    animation: 'blink 1s step-end infinite',
+  errorText: {
+    fontSize: '14px',
+    lineHeight: '1.35',
+    color: '#fca5a5',
   },
-  historyItem: {
-    opacity: '0.5',
-    transition: `opacity ${UI_CONSTANTS.CORRECTION_ANIMATION_MS}ms ease`,
+  typingText: {
+    color: '#ffffff',
   },
-  correction: {
-    animation: `fadeIn ${UI_CONSTANTS.CORRECTION_ANIMATION_MS}ms ease-in`,
+  repairText: {
+    color: '#fca5a5',
+    textDecoration: 'line-through',
+    opacity: 0.85,
   },
 } as const;
 
-/** 光标闪烁动画样式 */
-const cursorKeyframes = `
-@keyframes blink {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0; }
-}
-@keyframes fadeIn {
-  from { opacity: 0; transform: translateY(4px); }
-  to { opacity: 1; transform: translateY(0); }
-}
-`;
+const STATE_LABELS: Record<SessionState, string> = {
+  idle: '\u5f85\u673a\u4e2d',
+  running: '\u8fd0\u884c\u4e2d',
+  listening: '\u76d1\u542c\u4e2d',
+  recognizing: '\u8bc6\u522b\u4e2d',
+  reconnecting: '\u91cd\u8fde\u4e2d',
+  paused: '\u5df2\u6682\u505c',
+  stopped: '\u5df2\u505c\u6b62',
+  error: '\u8bc6\u522b\u5f02\u5e38',
+};
 
-/** SubtitleOverlay 属性 */
 interface SubtitleOverlayProps {
-  /** 当前正在翻译的句子（流式） */
-  currentTranslation: TranslationResult | null;
-  /** 已确认的翻译结果列表 */
-  confirmedTranslations: TranslationResult[];
-  /** 是否显示双语（原文+译文），false 只显示译文 */
-  showBilingual?: boolean;
+  currentTranscript: STTResult | null;
+  confirmedTranscripts: STTResult[];
+  currentTranslation?: TranslatePartialPayload | null;
+  confirmedTranslations?: TranslationResult[];
+  sessionState: SessionState;
 }
 
-/**
- * 字幕渲染组件
- * 当前句显示在底部带光标，已确认句向上滚动
- */
-export function SubtitleOverlay({ currentTranslation, confirmedTranslations, showBilingual = true }: SubtitleOverlayProps) {
-  const [prevTranslation, setPrevTranslation] = useState<string | null>(null);
-  const [correcting, setCorrecting] = useState(false);
+function getTranslationError(
+  translation: TranslatePartialPayload | TranslationResult | null,
+): string | undefined {
+  return translation && 'error' in translation ? translation.error : undefined;
+}
 
-  // 纠正动画检测：当前句翻译变化时触发
-  useEffect(() => {
-    if (
-      currentTranslation &&
-      prevTranslation !== null &&
-      currentTranslation.translation !== prevTranslation
-    ) {
-      setCorrecting(true);
-      const timer = setTimeout(() => setCorrecting(false), UI_CONSTANTS.CORRECTION_ANIMATION_MS);
-      return () => clearTimeout(timer);
-    }
-    if (currentTranslation) {
-      setPrevTranslation(currentTranslation.translation);
-    }
-  }, [currentTranslation?.translation]);
-
-  const visibleHistory = confirmedTranslations.slice(-UI_CONSTANTS.MAX_VISIBLE_SENTENCES);
-  const hasCurrent = currentTranslation !== null;
+export function SubtitleOverlay({
+  currentTranscript,
+  confirmedTranscripts,
+  currentTranslation = null,
+  confirmedTranslations = [],
+  sessionState,
+}: SubtitleOverlayProps) {
+  const latestConfirmedTranscript = confirmedTranscripts[confirmedTranscripts.length - 1] ?? null;
+  const activeTranscript = currentTranscript ?? latestConfirmedTranscript;
+  const streaming = useStreamingSubtitleText(activeTranscript);
+  const activeSentenceId = activeTranscript?.sentenceId ?? null;
+  const activeConfirmedTranslation = activeSentenceId
+    ? confirmedTranslations.find((item) => item.sentenceId === activeSentenceId) ?? null
+    : null;
+  const activeTranslation =
+    currentTranslation?.sentenceId === activeSentenceId ? currentTranslation : activeConfirmedTranslation;
+  const activeTranslationError = getTranslationError(activeTranslation);
 
   return (
-    <div style={STYLE.container as React.CSSProperties}>
-      <style>{cursorKeyframes}</style>
-
-      <div style={STYLE.dragHandle as React.CSSProperties}>
-        <div style={STYLE.dragDot} />
+    <div style={STYLE.shell} data-testid="subtitle-shell">
+      <div style={STYLE.handle}>
+        <div style={STYLE.dot} />
       </div>
-
-      {/* 已确认句（向上滚动，半透明） */}
-      {visibleHistory.length > 0
-        ? visibleHistory.map((item) => (
-            <div key={item.sentenceId} style={STYLE.historyItem}>
-              {showBilingual && <div style={STYLE.source}>{item.original}</div>}
-              <div style={STYLE.target}>{item.translation}</div>
-            </div>
-          ))
-        : null}
-
-      {/* 当前句（流式输出 + 光标） */}
-      {hasCurrent ? (
-        <div style={correcting ? STYLE.correction : undefined}>
-          {showBilingual && <div style={STYLE.source}>{currentTranslation.original || '...'}</div>}
-          <div style={STYLE.target}>
-            {currentTranslation.translation}
-            {currentTranslation.isFinal ? null : <span style={STYLE.cursor} />}
-          </div>
+      <div style={STYLE.state}>{STATE_LABELS[sessionState]}</div>
+      {streaming.parts.length > 0 ? (
+        <div style={STYLE.currentOriginal} data-testid="subtitle-active-source">
+          {streaming.parts.map((part, index) => (
+            <span
+              key={`${part.kind}-${index}-${part.text}`}
+              data-repair={part.kind === 'repair' ? 'true' : undefined}
+              style={
+                part.kind === 'repair'
+                  ? STYLE.repairText
+                  : part.kind === 'typing'
+                    ? STYLE.typingText
+                    : undefined
+              }
+            >
+              {part.text}
+            </span>
+          ))}
+        </div>
+      ) : null}
+      {activeTranslationError ? (
+        <div style={STYLE.errorText}>Translation failed: {activeTranslationError}</div>
+      ) : activeTranslation?.translation ? (
+        <div style={STYLE.currentTranslation} data-testid="subtitle-active-translation">
+          {activeTranslation.translation}
         </div>
       ) : null}
     </div>

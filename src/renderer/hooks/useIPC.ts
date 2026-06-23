@@ -11,7 +11,7 @@ const win: any = typeof window !== 'undefined' ? window : globalThis;
 
 /** 获取安全的 API 引用 */
 function getAPI(): typeof win.synchrolens | null {
-  return win.synchrolens ?? null;
+  return win.synchrolens ?? win.synchroLens ?? null;
 }
 
 /**

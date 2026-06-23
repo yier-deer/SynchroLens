@@ -3,19 +3,16 @@
  * 显示当前笔记的智能摘要内容
  */
 
-import { UI_CONSTANTS } from '@shared/constants';
-
-/** SummaryViewer 属性 */
 interface SummaryViewerProps {
-  /** 摘要内容 */
   summary: string | null;
-  /** 触发摘要生成 */
   onGenerateSummary: () => void;
-  /** 会话状态 */
   isRunning: boolean;
+  status?: {
+    state: 'idle' | 'running' | 'completed' | 'failed';
+    error: string | null;
+  };
 }
 
-/** 样式常量 */
 const S = {
   container: {
     flex: 1,
@@ -50,13 +47,17 @@ const S = {
     cursor: 'pointer',
     transition: 'background 150ms',
   },
+  status: {
+    fontSize: '12px',
+    color: '#9ca3af',
+  },
+  error: {
+    fontSize: '12px',
+    color: '#fca5a5',
+  },
 } as const;
 
-/**
- * 摘要查看器
- * 展示智能摘要内容，支持手动触发生成
- */
-export function SummaryViewer({ summary, onGenerateSummary, isRunning }: SummaryViewerProps) {
+export function SummaryViewer({ summary, onGenerateSummary, isRunning, status }: SummaryViewerProps) {
   return (
     <div style={S.container}>
       {summary ? (
@@ -67,12 +68,15 @@ export function SummaryViewer({ summary, onGenerateSummary, isRunning }: Summary
         </div>
       )}
 
+      {status?.state === 'running' ? <div style={S.status}>摘要生成中...</div> : null}
+      {status?.state === 'failed' && status.error ? <div style={S.error}>{status.error}</div> : null}
+
       <button
         style={S.generateBtn}
         onClick={onGenerateSummary}
         disabled={!isRunning}
       >
-        🧠 生成摘要
+        生成摘要
       </button>
     </div>
   );
