@@ -9,6 +9,7 @@ import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'fs';
 import appLogger from '../../utils/logger';
 import type { AppConfig } from '../../../shared/types';
 import { DEFAULT_CONFIG } from '../../../shared/types';
+import { TencentTMTSecretStore } from './TencentTMTSecretStore';
 
 function getConfigPath(): string {
   const userDataPath = app.getPath('userData');
@@ -25,9 +26,11 @@ function ensureConfigDir(configPath: string): void {
 
 export class ConfigStore {
   private configPath: string;
+  private secretStore: TencentTMTSecretStore;
 
   constructor() {
     this.configPath = getConfigPath();
+    this.secretStore = new TencentTMTSecretStore();
   }
 
   /** 加载配置，深度合并到默认配置（防止新增字段缺失） */
@@ -43,6 +46,16 @@ export class ConfigStore {
       const raw = readFileSync(this.configPath, 'utf-8');
       const saved = JSON.parse(raw) as Partial<AppConfig>;
       let merged = deepMerge(DEFAULT_CONFIG as any, saved) as AppConfig;
+      merged.stt = this.normalizeSttConfig(merged.stt);
+      if (saved.translation?.tencent?.secretKeySaved) {
+        delete merged.translation.tencent.secretKey;
+        merged.translation.tencent.secretKeySaved = true;
+      }
+      if (hasSavedTencentCredentials(saved)) {
+        merged.translation.provider = 'tencent-tmt';
+        merged.translation.apiEndpoint = 'http://127.0.0.1:8765';
+        merged.translation.model = 'tencent-tmt';
+      }
       // 向量模型 API 端点和模型名始终使用代码默认值（用户只保留 apiKey）
       if (saved.vector) {
         merged.vector = { ...DEFAULT_CONFIG.vector, ...saved.vector };
@@ -66,12 +79,50 @@ export class ConfigStore {
   save(config: AppConfig): void {
     try {
       ensureConfigDir(this.configPath);
-      writeFileSync(this.configPath, JSON.stringify(config, null, 2), 'utf-8');
+      const sanitized = sanitizeConfig(config, this.secretStore);
+      writeFileSync(this.configPath, JSON.stringify(sanitized, null, 2), 'utf-8');
       appLogger.info('配置已保存', { path: this.configPath });
     } catch (err) {
       appLogger.error('配置保存失败', { error: (err as Error).message });
+      throw err;
     }
   }
+
+  getTencentSecretKey(): string | null {
+    return this.secretStore.loadSecretKey();
+  }
+
+  private normalizeSttConfig(stt: AppConfig['stt']): AppConfig['stt'] {
+    return {
+      ...stt,
+      provider: stt.provider === ('xfyun' as AppConfig['stt']['provider'])
+        ? 'xfyun-rtasr'
+        : stt.provider,
+    };
+  }
+}
+
+function hasSavedTencentCredentials(config: Partial<AppConfig>): boolean {
+  const tencent = config.translation?.tencent;
+  return Boolean(tencent?.secretId?.trim() || tencent?.secretKeySaved);
+}
+
+function sanitizeConfig(config: AppConfig, secretStore: TencentTMTSecretStore): AppConfig {
+  const cloned = JSON.parse(JSON.stringify(config)) as AppConfig;
+  const tencent = cloned.translation?.tencent;
+
+  if (!tencent) {
+    return cloned;
+  }
+
+  const nextSecret = tencent.secretKey?.trim();
+  if (nextSecret) {
+    secretStore.saveSecretKey(nextSecret);
+    tencent.secretKeySaved = true;
+  }
+
+  delete tencent.secretKey;
+  return cloned;
 }
 
 /* eslint-disable @typescript-eslint/no-explicit-any */

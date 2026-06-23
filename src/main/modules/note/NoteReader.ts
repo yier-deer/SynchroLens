@@ -11,6 +11,11 @@ export class NoteReader {
     this.notesDir = notesDir;
   }
 
+  setNotesDir(notesDir: string): void {
+    this.notesDir = notesDir;
+    this.l.info('笔记目录已更新', { notesDir });
+  }
+
   getNotesDir(): string {
     return this.notesDir;
   }

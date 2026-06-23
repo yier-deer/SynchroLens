@@ -1,13 +1,17 @@
 import { app } from 'electron';
-import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'fs';
-import { join, dirname } from 'path';
-import type { DictEntry } from '../../../shared/types';
-import { cosineSimilarity } from '../vector/EmbeddingClient';
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'fs';
+import { dirname, join } from 'path';
+import type { PersonalDictEntry } from '../../../shared/types';
 import { createLogger } from '../../utils/logger';
+import { cosineSimilarity } from '../vector/EmbeddingClient';
 
-/** 带向量的词典条目 */
-interface DictEntryWithEmbedding extends DictEntry {
+interface DictEntryWithEmbedding extends PersonalDictEntry {
   embedding?: number[];
+}
+
+export interface ScoredPersonalDictEntry {
+  entry: PersonalDictEntry;
+  score: number;
 }
 
 function genId(): string {
@@ -15,8 +19,8 @@ function genId(): string {
 }
 
 export class PersonalDictStore {
-  private l = createLogger('PersonalDictStore');
-  private dataPath: string;
+  private readonly l = createLogger('PersonalDictStore');
+  private readonly dataPath: string;
   private items: DictEntryWithEmbedding[] = [];
 
   constructor() {
@@ -24,21 +28,40 @@ export class PersonalDictStore {
     this.load();
   }
 
-  add(entry: { source: string; target: string; improvement: string; sourceNote: string }, embedding?: number[]): DictEntryWithEmbedding {
-    const item: DictEntryWithEmbedding = { id: genId(), ...entry, createdAt: new Date().toISOString(), embedding };
-    this.items.push(item);
+  add(
+    entry: { source: string; target: string; improvement: string; sourceNote: string },
+    embedding?: number[],
+  ): DictEntryWithEmbedding {
+    const item: DictEntryWithEmbedding = {
+      id: genId(),
+      source: entry.source.trim(),
+      target: entry.target.trim(),
+      improvement: entry.improvement.trim(),
+      sourceNote: entry.sourceNote.trim(),
+      createdAt: new Date().toISOString(),
+      embedding,
+    };
+
+    this.items.unshift(item);
     this.save();
-    return item;
+    return { ...item };
   }
 
-  getAll(): DictEntryWithEmbedding[] {
-    return [...this.items];
+  getAll(): PersonalDictEntry[] {
+    return this.items.map(({ embedding: _embedding, ...entry }) => ({ ...entry }));
+  }
+
+  getRuntimeEntries(): DictEntryWithEmbedding[] {
+    return this.items.map((item) => ({ ...item, embedding: item.embedding ? [...item.embedding] : undefined }));
   }
 
   remove(id: string): boolean {
-    const idx = this.items.findIndex(i => i.id === id);
-    if (idx === -1) return false;
-    this.items.splice(idx, 1);
+    const index = this.items.findIndex((item) => item.id === id);
+    if (index === -1) {
+      return false;
+    }
+
+    this.items.splice(index, 1);
     this.save();
     return true;
   }
@@ -46,9 +69,11 @@ export class PersonalDictStore {
   removeBatch(ids: string[]): number {
     const idSet = new Set(ids);
     const before = this.items.length;
-    this.items = this.items.filter(i => !idSet.has(i.id));
+    this.items = this.items.filter((item) => !idSet.has(item.id));
     const removed = before - this.items.length;
-    if (removed > 0) this.save();
+    if (removed > 0) {
+      this.save();
+    }
     return removed;
   }
 
@@ -56,30 +81,69 @@ export class PersonalDictStore {
     return this.items.length > 0;
   }
 
-  /** 余弦相似度搜索与查询最相似的条目 */
-  searchBySimilarity(queryEmbedding: number[], topK: number = 5, threshold: number = 0.7): DictEntryWithEmbedding[] {
+  searchBySimilarityWithScores(
+    queryEmbedding: number[],
+    topK = 5,
+    threshold = 0.7,
+  ): ScoredPersonalDictEntry[] {
     return this.items
       .filter((item) => item.embedding && item.embedding.length > 0)
       .map((item) => ({ item, score: cosineSimilarity(queryEmbedding, item.embedding!) }))
       .filter(({ score }) => score >= threshold)
-      .sort((a, b) => b.score - a.score)
+      .sort((left, right) => right.score - left.score)
       .slice(0, topK)
-      .map(({ item }) => item);
+      .map(({ item, score }) => {
+        const { embedding: _embedding, ...entry } = item;
+        return { entry: { ...entry }, score };
+      });
+  }
+
+  searchBySimilarity(queryEmbedding: number[], topK = 5, threshold = 0.7): PersonalDictEntry[] {
+    return this.searchBySimilarityWithScores(queryEmbedding, topK, threshold).map(({ entry }) => entry);
   }
 
   private load(): void {
     try {
-      if (!existsSync(this.dataPath)) { this.items = []; return; }
-      const raw = JSON.parse(readFileSync(this.dataPath, 'utf-8'));
-      this.items = Array.isArray(raw) ? raw : [];
-    } catch { this.items = []; }
+      if (!existsSync(this.dataPath)) {
+        this.items = [];
+        return;
+      }
+
+      const raw = JSON.parse(readFileSync(this.dataPath, 'utf-8')) as unknown;
+      if (!Array.isArray(raw)) {
+        this.items = [];
+        return;
+      }
+
+      this.items = raw
+        .filter((item): item is DictEntryWithEmbedding => Boolean(item && typeof item === 'object'))
+        .map((item) => ({
+          id: String(item.id),
+          source: String(item.source ?? '').trim(),
+          target: String(item.target ?? '').trim(),
+          improvement: String(item.improvement ?? '').trim(),
+          sourceNote: String(item.sourceNote ?? '').trim(),
+          createdAt: String(item.createdAt ?? ''),
+          embedding: Array.isArray(item.embedding)
+            ? item.embedding.filter((value): value is number => typeof value === 'number')
+            : undefined,
+        }))
+        .filter((item) => item.id && item.source && item.target);
+    } catch {
+      this.items = [];
+    }
   }
 
   private save(): void {
     try {
       const dir = dirname(this.dataPath);
-      if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
+      if (!existsSync(dir)) {
+        mkdirSync(dir, { recursive: true });
+      }
+
       writeFileSync(this.dataPath, JSON.stringify(this.items, null, 2), 'utf-8');
-    } catch (err) { this.l.error('个人词典保存失败', { error: (err as Error).message }); }
+    } catch (error) {
+      this.l.error('个人词典保存失败', { error: (error as Error).message });
+    }
   }
 }
