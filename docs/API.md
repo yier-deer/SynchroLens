@@ -1,139 +1,146 @@
-# SynchroLens API 接口契约文档
+# SynchroLens API 契约
 
-> 本文档定义 SynchroLens 项目所有 IPC 通道的接口契约，与 `src/shared/ipcChannels.ts` 保持同步。
+本文档描述当前实现中的 IPC 契约、Preload 暴露 API，以及主进程内部本地 adapter 接口。
 
----
+## 1. Main -> Renderer
 
-## 1. Main → Renderer（主进程推送）
+| Channel | Payload | 用途 |
+|---|---|---|
+| `stt:partial` | `{ sentenceId, text, isFinal: false, timestamp }` | STT 中间结果 |
+| `stt:sentence` | `{ sentenceId, text, isFinal: true, timestamp }` | STT 最终句子 |
+| `translate:partial` | `{ sentenceId, original, translation, constraints? }` | 实时翻译中间结果 |
+| `translate:final` | `{ sentenceId, original, translation, corrections, constraints?, error? }` | 最终翻译结果 |
+| `note:saved` | `{ filePath }` | 会话笔记已创建或已更新 |
+| `note:summary` | `{ summary }` | summary 已生成 |
+| `enhancement:status` | `{ kind, state, sessionId, ... }` | 摘要 / 纠错 / 推荐增强状态 |
+| `session:state-change` | `{ state }` | 会话状态变更 |
 
-| 通道名 | 载荷类型 | 触发时机 |
-|--------|----------|----------|
-| `stt:partial` | `{ sentenceId, text, isFinal: false }` | 讯飞返回中间识别结果 |
-| `stt:sentence` | `{ sentenceId, text, timestamp }` | 讯飞返回完整句子 |
-| `translate:partial` | `{ sentenceId, translation }` | DeepSeek 流式翻译片段 |
-| `translate:final` | `{ sentenceId, original, translation, isFinal, corrections[] }` | 句子翻译完成 |
-| `translate:correct` | `{ sentenceId, oldTranslation, newTranslation, reason }` | 上下文纠正触发的译文修正 |
-| `note:saved` | `{ filePath }` | 笔记文件写入磁盘后 |
-| `note:summary` | `{ summary }` | LLM 摘要生成完成 |
-| `session:state-change` | `{ state: 'idle' \| 'running' \| 'paused' \| 'stopped' }` | 会话状态变更时 |
+注：当前实现中 `translate:correct` 仍保留在共享常量中，但主链增强状态主要通过 `enhancement:status` 对外广播。
 
----
-
-## 2. Renderer → Main（渲染进程请求）
+## 2. Renderer -> Main
 
 ### 会话控制
 
-| 通道名 | 载荷 | 返回值 | 用途 |
-|--------|------|--------|------|
-| `session:start` | `{ audioSource }` | `void` | 启动翻译会话 |
-| `session:stop` | — | `void` | 停止会话，触发笔记保存+摘要 |
-| `session:pause` | — | `void` | 暂停会话 |
-| `session:resume` | — | `void` | 恢复暂停的会话 |
-| `config:update` | `Record<string, unknown>` | `void` | 更新应用配置 |
-| `summary:trigger` | — | `void` | 手动触发摘要生成 |
+| Channel | Payload | 返回 |
+|---|---|---|
+| `session:start` | `{ audioSource }` | `void` |
+| `session:stop` | - | `void` |
+| `session:pause` | - | `void` |
+| `session:resume` | - | `void` |
+| `summary:trigger` | - | `void` |
+| `config:update` | `Partial<AppConfig>` | `void` |
 
 ### 窗口控制
 
-| 通道名 | 载荷 | 返回值 | 用途 |
-|--------|------|--------|------|
-| `window:prepare-record` | — | `void` | 创建字幕窗+控制窗 + 最小化主窗 |
-| `window:exit-control` | `{ action: 'minimize' \| 'stop' }` | `void` | 隐藏或关闭控制窗（stop 会同时关字幕窗） |
-| `window:toggle-subtitle` | `{ visible: boolean }` | `void` | 字幕窗 show/hide（不销毁实例） |
+| Channel | Payload | 返回 |
+|---|---|---|
+| `window:prepare-record` | - | `void` |
+| `window:exit-control` | `{ action }` | `void` |
+| `window:toggle-subtitle` | `{ visible }` | `void` |
 
-### 收藏
+### 配置
 
-| 通道名 | 载荷 | 返回值 | 用途 |
-|--------|------|--------|------|
-| `favorite:add` | `{ text, noteFileName, noteFilePath }` | `void` | 添加收藏条目 |
-| `favorite:remove` | `{ id }` | `void` | 删除单条收藏 |
-| `favorite:remove-batch` | `{ ids[] }` | `void` | 批量删除收藏 |
-| `favorite:get` | — | `Favorite[]` | 获取所有收藏 |
-| `favorite:search` | `{ query }` | `Favorite[]` | 按关键词搜索收藏 |
-| `favorite:export` | `{ ids[], savePath }` | `void` | 导出选中收藏为 .md |
+| Channel | Payload | 返回 |
+|---|---|---|
+| `config:load` | - | `AppConfig` |
+| `config:save` | `AppConfig` | `void` |
 
-### 改进与个人词典
+### 收藏 / 词典 / 笔记 / 数据
 
-| 通道名 | 载荷 | 返回值 | 用途 |
-|--------|------|--------|------|
-| `improve:submit` | `{ original, improved, reason, context }` | `void` | 提交用户改进翻译 |
-| `personal-dict:status` | — | `boolean` | 查询个人词典是否开启 |
+| Channel | Payload | 返回 |
+|---|---|---|
+| `favorite:*` | 见实现 | 收藏 CRUD / 搜索 / 导出 |
+| `improve:submit` | `{ original, improved, reason, context }` | `void` |
+| `personal-dict:status` | - | `{ available, hasEntries, embeddingReady }` |
+| `dictionary:files:list` | `{ dictType }` | `DictionaryFileInfo[]` |
+| `dictionary:file:*` | 见实现 | 词典文件管理 |
+| `dictionary:entries:get` | `{ dictType }` | `DictEntry[]` |
+| `dictionary:entry:remove` | `{ dictType, entryId }` | `void` |
+| `notes:list` | `{ dirPath? }` | `NoteTreeItem[]` |
+| `notes:read` | `{ filePath }` | `string` |
+| `notes:export-all` | `{ savePath }` | `void` |
+| `data:clear` | `{ types }` | `void` |
+| `dialog:select-file` | `{ filters? }` | `string \| null` |
+| `dialog:select-directory` | - | `string \| null` |
 
-### 词典管理
+## 3. Preload 暴露 API
 
-| 通道名 | 载荷 | 返回值 | 用途 |
-|--------|------|--------|------|
-| `dictionary:entries:get` | `{ dictType }` | `DictEntry[]` | 获取词典条目列表 |
-| `dictionary:entry:remove` | `{ dictType, entryId }` | `void` | 删除词典条目 |
-| `dictionary:file:load` | `{ dictType, filePath }` | `void` | 加载词典文件（CSV/JSON/TXT） |
-| `dictionary:file:remove` | `{ dictType, filePath }` | `void` | 移除词典文件 |
-| `dictionary:file:toggle` | `{ dictType, filePath, enabled }` | `void` | 启用/禁用词典文件 |
+`window.synchrolens` 当前暴露的主要能力：
 
-### 笔记读取
+- `on/off/once`
+- `startSession/stopSession/pauseSession/resumeSession`
+- `updateConfig/loadConfig/saveConfig`
+- `triggerSummary`
+- `prepareRecord/exitControl/toggleSubtitle`
+- `addFavorite/removeFavorite/removeFavorites/getFavorites/searchFavorites/exportFavorites`
+- `submitImprovement/getPersonalDictStatus`
+- `listDictionaryFiles/loadDictionaryFile/removeDictionaryFile/toggleDictionaryFile`
+- `getDictionaryEntries/removeDictionaryEntry`
+- `listNotes/readNote/exportAllNotes`
+- `selectDirectory/selectFile`
+- `clearData`
+- `log`
 
-| 通道名 | 载荷 | 返回值 | 用途 |
-|--------|------|--------|------|
-| `notes:list` | `{ dirPath? }` | `NoteTreeItem[]` | 获取笔记文件树 |
-| `notes:read` | `{ filePath }` | `string` | 读取笔记文件内容 |
+以 [index.ts](</E:/Trae/worktrees/SynchroLens/pr-backport-optimizations/src/preload/index.ts>) 为准。
 
-### 数据管理
+## 4. 本地 Tencent TMT Adapter
 
-| 通道名 | 载荷 | 返回值 | 用途 |
-|--------|------|--------|------|
-| `notes:export-all` | `{ savePath }` | `void` | 导出全部笔记为 .zip |
-| `data:clear` | `{ types: ('notes'\|'favorites'\|'personalDict')[] }` | `void` | 清除历史数据 |
+当前主链默认使用本地 adapter：
 
-### 日志
+- Base URL: `http://127.0.0.1:8765`
+- `GET /health`
+- `POST /translate`
 
-| 通道名 | 载荷 | 返回值 | 用途 |
-|--------|------|--------|------|
-| `log:send` | `{ level, module, message, data? }` | 无（send） | 渲染进程日志上报到主进程 |
+### `GET /health`
 
----
+成功返回：
 
-## 3. 核心数据类型
-
-### Favorite
-```typescript
-interface Favorite {
-  id: string;
-  text: string;
-  noteFileName: string;
-  noteFilePath: string;
-  createdAt: string;
+```json
+{
+  "ok": true,
+  "provider": "tencent-tmt",
+  "configured": true,
+  "secretKeySaved": true
 }
 ```
 
-### NoteTreeItem
-```typescript
-interface NoteTreeItem {
-  name: string;
-  path: string;
-  type: 'directory' | 'file';
-  children?: NoteTreeItem[];
-  modifiedAt?: number;
+未配置返回：
+
+```json
+{
+  "ok": false,
+  "provider": "tencent-tmt",
+  "configured": false,
+  "error": {
+    "code": "TMT_CONFIG_MISSING",
+    "message": "..."
+  }
 }
 ```
 
-### DictEntry
-```typescript
-interface DictEntry {
-  id: string;
-  source: string;
-  target: string;
-  improvement: string;
-  sourceNote: string;
-  createdAt: string;
+### `POST /translate`
+
+请求体示例：
+
+```json
+{
+  "text": "hello world",
+  "targetLanguage": "zh-CN",
+  "model": "tencent-tmt",
+  "context": [],
+  "constraints": []
 }
 ```
 
-### ImprovementPayload
-```typescript
-interface ImprovementPayload {
-  original: string;
-  improved: string;
-  reason: string;
-  context: string;
-}
-```
+## 5. 当前架构约定
 
-> 完整类型定义见 `src/shared/types.ts`
+- 实时翻译主链不再假定为 DeepSeek 直连。
+- `translation.*` 用于实时 NMT / TMT 主链。
+- `llm.*` 用于摘要、推荐、纠错建议等增强侧链。
+- `enhancement:status` 是增强能力的主要状态广播通道。
+
+## 6. 参考实现
+
+- IPC 常量：[ipcChannels.ts](</E:/Trae/worktrees/SynchroLens/pr-backport-optimizations/src/shared/ipcChannels.ts>)
+- Preload API：[index.ts](</E:/Trae/worktrees/SynchroLens/pr-backport-optimizations/src/preload/index.ts>)
+- Main 入口：[mainEntry.ts](</E:/Trae/worktrees/SynchroLens/pr-backport-optimizations/src/main/mainEntry.ts>)
